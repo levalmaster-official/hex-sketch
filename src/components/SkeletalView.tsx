@@ -4,8 +4,8 @@ import { SkeletalToolbar } from './SkeletalToolbar';
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
-// Isometric grid constants: bonds are ~52px wide, 30px tall
-const ISO_L = 52;
+// Isometric grid constants: bond length = 30px, matches benzene side length
+const ISO_L = 30;
 
 const snapToIsoGrid = (x: number, y: number): { x: number; y: number } => {
 	// Triangular grid with 60° angles. Row height = ISO_L * sin(60°) ≈ ISO_L * 0.866
@@ -257,7 +257,7 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 		if (activeTool === 'bond_single' || activeTool === 'bond_dotted') {
 			const type = activeTool.replace('bond_', '') as BondType;
 			// Snap to an existing endpoint if close enough
-			const nearEnd = findNearestBondEndpoint(bonds, snap.x, snap.y, 25);
+			const nearEnd = findNearestBondEndpoint(bonds, snap.x, snap.y, 15);
 			const startPt = nearEnd || snap;
 			if (chainEnd) {
 				pushHistory();
@@ -331,14 +331,8 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 			setAnnotations(prev => [...prev, { id: generateId(), type: 'reaction_plus', x: coords.x, y: coords.y, value: '+', color: currentColor || undefined }]);
 			return;
 		}
-		if (activeTool === 'reaction_arrow') {
-			pushHistory();
-			setAnnotations(prev => [...prev, { id: generateId(), type: 'reaction_arrow', x: coords.x, y: coords.y, value: '→', color: currentColor || undefined }]);
-			return;
-		}
-		if (activeTool === 'reaction_reversible') {
-			pushHistory();
-			setAnnotations(prev => [...prev, { id: generateId(), type: 'reaction_reversible', x: coords.x, y: coords.y, value: '⇌', color: currentColor || undefined }]);
+		if (activeTool === 'reaction_arrow' || activeTool === 'reaction_reversible') {
+			setDrawingArrow({ start: coords, current: coords });
 			return;
 		}
 	};
@@ -346,6 +340,8 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 	// Click on an existing bond to upgrade its type (Double / Triple / Dotted)
 	const handlePointerDownBond = (e: ReactMouseEvent, id: string) => {
 		if (readOnly) return;
+		// For heteroatom tool, let the event bubble to the canvas so it places at the snap point
+		if (activeTool === 'heteroatom') return;
 		e.stopPropagation();
 		setChainEnd(null);
 		if (activeTool === 'select') {
@@ -512,31 +508,28 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 		const SHORT = 0.12; // fraction to shorten each end for inner lines
 		const s = SHORT * len;
 
+		const lc = 'round' as const; // strokeLinecap=round ensures lines meet cleanly at shared vertices
 		const lines: React.ReactElement[] = [];
 		if (bond.type === 'single') {
-			lines.push(<line key="m" x1={x1} y1={y1} x2={x2} y2={y2} stroke={strokeCol} strokeWidth={sw} />);
+			lines.push(<line key="m" x1={x1} y1={y1} x2={x2} y2={y2} stroke={strokeCol} strokeWidth={sw} strokeLinecap={lc} />);
 		} else if (bond.type === 'dotted') {
-			lines.push(<line key="m" x1={x1} y1={y1} x2={x2} y2={y2} stroke={strokeCol} strokeWidth={sw} strokeDasharray="4 4" />);
+			lines.push(<line key="m" x1={x1} y1={y1} x2={x2} y2={y2} stroke={strokeCol} strokeWidth={sw} strokeLinecap={lc} strokeDasharray="4 4" />);
 		} else if (bond.type === 'double') {
-			// Main line (full length)
-			lines.push(<line key="m" x1={x1} y1={y1} x2={x2} y2={y2} stroke={strokeCol} strokeWidth={sw} />);
-			// Shorter inner line: offset to one side, slightly shorter at both ends
+			lines.push(<line key="m" x1={x1} y1={y1} x2={x2} y2={y2} stroke={strokeCol} strokeWidth={sw} strokeLinecap={lc} />);
 			lines.push(<line key="d"
 				x1={x1 + ux*s + nx*OFFSET} y1={y1 + uy*s + ny*OFFSET}
 				x2={x2 - ux*s + nx*OFFSET} y2={y2 - uy*s + ny*OFFSET}
-				stroke={strokeCol} strokeWidth={sw} />);
+				stroke={strokeCol} strokeWidth={sw} strokeLinecap={lc} />);
 		} else if (bond.type === 'triple') {
-			// Main line (full length)
-			lines.push(<line key="m" x1={x1} y1={y1} x2={x2} y2={y2} stroke={strokeCol} strokeWidth={sw} />);
-			// Two shorter lines on each side
+			lines.push(<line key="m" x1={x1} y1={y1} x2={x2} y2={y2} stroke={strokeCol} strokeWidth={sw} strokeLinecap={lc} />);
 			lines.push(<line key="da"
 				x1={x1 + ux*s - nx*OFFSET} y1={y1 + uy*s - ny*OFFSET}
 				x2={x2 - ux*s - nx*OFFSET} y2={y2 - uy*s - ny*OFFSET}
-				stroke={strokeCol} strokeWidth={sw} />);
+				stroke={strokeCol} strokeWidth={sw} strokeLinecap={lc} />);
 			lines.push(<line key="db"
 				x1={x1 + ux*s + nx*OFFSET} y1={y1 + uy*s + ny*OFFSET}
 				x2={x2 - ux*s + nx*OFFSET} y2={y2 - uy*s + ny*OFFSET}
-				stroke={strokeCol} strokeWidth={sw} />);
+				stroke={strokeCol} strokeWidth={sw} strokeLinecap={lc} />);
 		}
 
 		return (
@@ -601,19 +594,19 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 					onWheel={handleWheel}
 				>
 					<defs>
-						<pattern id="isoGrid" width="104" height="90.0666" patternUnits="userSpaceOnUse" patternTransform={`translate(${pan.x}, ${pan.y}) scale(${scale})`}>
-							{/* Triangular lattice: exactly the valid snap points */}
-							{/* Even rows (offset=0): x = 0, 52, 104 */}
-							<circle cx="0"   cy="0"       r="1.5" fill="var(--background-modifier-border)" />
-							<circle cx="52"  cy="0"       r="1.5" fill="var(--background-modifier-border)" />
-							<circle cx="104" cy="0"       r="1.5" fill="var(--background-modifier-border)" />
-							{/* Odd rows (offset=26): x = 26, 78 */}
-							<circle cx="26"  cy="45.0333" r="1.5" fill="var(--background-modifier-border)" />
-							<circle cx="78"  cy="45.0333" r="1.5" fill="var(--background-modifier-border)" />
-							{/* Tile bottom edge (= next even row) */}
-							<circle cx="0"   cy="90.0666" r="1.5" fill="var(--background-modifier-border)" />
-							<circle cx="52"  cy="90.0666" r="1.5" fill="var(--background-modifier-border)" />
-							<circle cx="104" cy="90.0666" r="1.5" fill="var(--background-modifier-border)" />
+						<pattern id="isoGrid" width="60" height="51.9615" patternUnits="userSpaceOnUse" patternTransform={`translate(${pan.x}, ${pan.y}) scale(${scale})`}>
+							{/* Triangular lattice for ISO_L=30: rowH = 30*sqrt(3)/2 = 25.9808 */}
+							{/* Even rows (offset=0): x = 0, 30, 60 */}
+							<circle cx="0"  cy="0"       r="1.5" fill="var(--background-modifier-border)" />
+							<circle cx="30" cy="0"       r="1.5" fill="var(--background-modifier-border)" />
+							<circle cx="60" cy="0"       r="1.5" fill="var(--background-modifier-border)" />
+							{/* Odd rows (offset=15): x = 15, 45 */}
+							<circle cx="15" cy="25.9808" r="1.5" fill="var(--background-modifier-border)" />
+							<circle cx="45" cy="25.9808" r="1.5" fill="var(--background-modifier-border)" />
+							{/* Tile bottom edge */}
+							<circle cx="0"  cy="51.9615" r="1.5" fill="var(--background-modifier-border)" />
+							<circle cx="30" cy="51.9615" r="1.5" fill="var(--background-modifier-border)" />
+							<circle cx="60" cy="51.9615" r="1.5" fill="var(--background-modifier-border)" />
 						</pattern>
 						<marker id="curlyhead" markerWidth="6" markerHeight="4.5" refX="5" refY="2.25" orient="auto">
 							<polygon points="0 0, 6 2.25, 0 4.5" fill="var(--text-normal)" />
@@ -661,6 +654,28 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 							/>;
 						})()}
 
+						{/* Reaction arrow preview (straight) */}
+						{drawingArrow && activeTool === 'reaction_arrow' && (
+							<line
+								x1={drawingArrow.start.x} y1={drawingArrow.start.y}
+								x2={drawingArrow.current.x} y2={drawingArrow.current.y}
+								stroke={currentColor || 'var(--text-normal)'} strokeWidth="2" strokeDasharray="4"
+								markerEnd="url(#curlyhead)"
+							/>
+						)}
+						{drawingArrow && activeTool === 'reaction_reversible' && (() => {
+							const dx = drawingArrow.current.x - drawingArrow.start.x;
+							const dy = drawingArrow.current.y - drawingArrow.start.y;
+							const len = Math.sqrt(dx*dx+dy*dy) || 1;
+							const nx2 = -dy/len*3; const ny2 = dx/len*3;
+							return <g>
+								<line x1={drawingArrow.start.x+nx2} y1={drawingArrow.start.y+ny2} x2={drawingArrow.current.x+nx2} y2={drawingArrow.current.y+ny2}
+									stroke={currentColor || 'var(--text-normal)'} strokeWidth="1.5" strokeDasharray="4" markerEnd="url(#curlyhead)" />
+								<line x1={drawingArrow.current.x-nx2} y1={drawingArrow.current.y-ny2} x2={drawingArrow.start.x-nx2} y2={drawingArrow.start.y-ny2}
+									stroke={currentColor || 'var(--text-normal)'} strokeWidth="1.5" strokeDasharray="4" markerEnd="url(#curlyhead)" />
+							</g>;
+						})()}
+
 						{/* Bonds */}
 						{bonds.map(renderBond)}
 
@@ -671,11 +686,13 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 								<g key={el.id} transform={`translate(${el.x}, ${el.y}) scale(${el.scale || 1})`}
 									onPointerDown={(e) => handlePointerDownElement(e, el.id)}
 									style={{ cursor: activeTool === 'select' && !readOnly ? 'move' : 'default' }}>
-									{/* Erase the bond behind the label for clean rendering */}
-									<text textAnchor={el.align || "middle"} dx={el.align === 'start' ? -6 : el.align === 'end' ? 6 : 0}
-										dominantBaseline="central" fill="var(--background-primary)"
-										fontWeight="bold" fontSize="16px" stroke="var(--background-primary)" strokeWidth="5"
-										style={{ userSelect: 'none' }}>{el.text}</text>
+									{/* Opaque background rect to fully erase bond behind label (fixes O letter hole) */}
+									{(() => {
+										const w = Math.max(14, (el.text || '').length * 9 + 4);
+										const dx2 = el.align === 'start' ? -6 : el.align === 'end' ? 6 : 0;
+										const rx = el.align === 'start' ? -w + dx2 + (w/2 - 2) : el.align === 'end' ? dx2 - (w/2 - 2) : -w/2;
+										return <rect x={rx} y={-9} width={w} height={18} fill="var(--background-primary)" rx="1" />;
+									})()}
 									<text textAnchor={el.align || "middle"} dx={el.align === 'start' ? -6 : el.align === 'end' ? 6 : 0}
 										dominantBaseline="central" fill={el.color || "var(--text-normal)"}
 										fontWeight="bold" fontSize="16px" style={{ userSelect: 'none' }}>{el.text}</text>
@@ -723,14 +740,55 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 										)}
 									</g>
 								);
-							} else if (ann.type === 'charge' || ann.type === 'delta_charge' || ann.type.startsWith('reaction_')) {
-								const isReact = ann.type.startsWith('reaction_');
+							} else if (ann.type === 'reaction_arrow' && ann.points && ann.points.length >= 2) {
+								const pts = ann.points;
+								return (
+									<g key={ann.id}>
+										<line x1={pts[0]!.x} y1={pts[0]!.y} x2={pts[1]!.x} y2={pts[1]!.y}
+											stroke={strokeColor} strokeWidth={isSelected ? 3 : 2}
+											markerEnd={isSelected ? 'url(#curlyhead-selected)' : (ann.color ? 'url(#curlyhead-color)' : 'url(#curlyhead)')}
+											onPointerDown={(e) => handlePointerDownAnnotation(e, ann.id)}
+											style={{ cursor: activeTool === 'select' && !readOnly ? 'pointer' : 'default', pointerEvents: 'stroke' }}
+										/>
+										{isSelected && activeTool === 'select' && (
+											<>
+												<circle cx={pts[0]!.x} cy={pts[0]!.y} r="5" fill="var(--color-green, #20f080)" cursor="move"
+													onPointerDown={(e) => { e.stopPropagation(); setSelectedIds([ann.id]); setDragNodeId(ann.id); setDragItemType('arrow_start'); }} />
+												<circle cx={pts[1]!.x} cy={pts[1]!.y} r="5" fill="var(--color-green, #20f080)" cursor="move"
+													onPointerDown={(e) => { e.stopPropagation(); setSelectedIds([ann.id]); setDragNodeId(ann.id); setDragItemType('arrow_end'); }} />
+											</>
+										)}
+									</g>
+								);
+							} else if (ann.type === 'reaction_reversible' && ann.points && ann.points.length >= 2) {
+								const pts = ann.points;
+								const dx2 = pts[1]!.x - pts[0]!.x; const dy2 = pts[1]!.y - pts[0]!.y;
+								const len2 = Math.sqrt(dx2*dx2+dy2*dy2) || 1;
+								const nx2 = -dy2/len2*3.5; const ny2 = dx2/len2*3.5;
+								return (
+									<g key={ann.id} onPointerDown={(e) => handlePointerDownAnnotation(e, ann.id)} style={{ cursor: activeTool === 'select' && !readOnly ? 'pointer' : 'default' }}>
+										<line x1={pts[0]!.x+nx2} y1={pts[0]!.y+ny2} x2={pts[1]!.x+nx2} y2={pts[1]!.y+ny2}
+											stroke={strokeColor} strokeWidth={isSelected ? 2.5 : 1.5}
+											markerEnd={isSelected ? 'url(#curlyhead-selected)' : (ann.color ? 'url(#curlyhead-color)' : 'url(#curlyhead)')} />
+										<line x1={pts[1]!.x-nx2} y1={pts[1]!.y-ny2} x2={pts[0]!.x-nx2} y2={pts[0]!.y-ny2}
+											stroke={strokeColor} strokeWidth={isSelected ? 2.5 : 1.5}
+											markerEnd={isSelected ? 'url(#curlyhead-selected)' : (ann.color ? 'url(#curlyhead-color)' : 'url(#curlyhead)')} />
+										{isSelected && activeTool === 'select' && (
+											<>
+												<circle cx={pts[0]!.x} cy={pts[0]!.y} r="5" fill="var(--color-green, #20f080)" cursor="move"
+													onPointerDown={(e) => { e.stopPropagation(); setSelectedIds([ann.id]); setDragNodeId(ann.id); setDragItemType('arrow_start'); }} />
+												<circle cx={pts[1]!.x} cy={pts[1]!.y} r="5" fill="var(--color-green, #20f080)" cursor="move"
+													onPointerDown={(e) => { e.stopPropagation(); setSelectedIds([ann.id]); setDragNodeId(ann.id); setDragItemType('arrow_end'); }} />
+											</>
+										)}
+									</g>
+								);
+							} else if (ann.type === 'charge' || ann.type === 'delta_charge' || ann.type === 'reaction_plus') {
 								return (
 									<g key={ann.id} transform={`translate(${ann.x}, ${ann.y}) scale(${ann.scale || 1})`} onPointerDown={(e) => handlePointerDownAnnotation(e, ann.id)} style={{ cursor: activeTool === 'select' && !readOnly ? 'move' : 'default' }}>
-										{isSelected && isReact && <rect x="-14" y="-14" width="28" height="28" fill="transparent" stroke="var(--color-red, #f02020)" strokeDasharray="2" />}
-										<text textAnchor="middle" dominantBaseline="central" fill={ann.color || "var(--text-normal)"} fontSize={isReact ? "24px" : "14px"} fontWeight="bold" style={{ userSelect: 'none' }}>{ann.value}</text>
+										<text textAnchor="middle" dominantBaseline="central" fill={ann.color || "var(--text-normal)"} fontSize="14px" fontWeight="bold" style={{ userSelect: 'none' }}>{ann.value}</text>
 										{isSelected && activeTool === 'select' && (
-											<rect x={isReact ? 14 : 8} y={isReact ? 14 : 8} width="6" height="6" fill="var(--color-blue, #2080f0)" cursor="se-resize" onPointerDown={(e) => { e.stopPropagation(); setDragItemType('resize'); setDragNodeId(ann.id); }} />
+											<rect x="8" y="8" width="6" height="6" fill="var(--color-blue, #2080f0)" cursor="se-resize" onPointerDown={(e) => { e.stopPropagation(); setDragItemType('resize'); setDragNodeId(ann.id); }} />
 										)}
 									</g>
 								);

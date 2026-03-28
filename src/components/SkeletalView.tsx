@@ -4,28 +4,16 @@ import { SkeletalToolbar } from './SkeletalToolbar';
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
 
-const ISO_L = 30;
-const ISO_DX = ISO_L * Math.sqrt(3); // ~51.9615
-const ISO_DY = ISO_L / 2; // 15
+// Isometric grid constants: bonds are ~52px wide, 30px tall
+const ISO_L = 52;
 
-const snapToIsoGrid = (x: number, y: number) => {
-	const r1 = Math.floor(y / ISO_DY);
-	const r2 = r1 + 1;
-	
-	const offset1 = (Math.abs(r1) % 2 === 1) ? ISO_DX / 2 : 0;
-	const c1 = Math.round((x - offset1) / ISO_DX);
-	const x1 = c1 * ISO_DX + offset1;
-	const y1 = r1 * ISO_DY;
-
-	const offset2 = (Math.abs(r2) % 2 === 1) ? ISO_DX / 2 : 0;
-	const c2 = Math.round((x - offset2) / ISO_DX);
-	const x2 = c2 * ISO_DX + offset2;
-	const y2 = r2 * ISO_DY;
-
-	const d1 = (x - x1)*(x - x1) + (y - y1)*(y - y1);
-	const d2 = (x - x2)*(x - x2) + (y - y2)*(y - y2);
-
-	return d1 < d2 ? { x: x1, y: y1 } : { x: x2, y: y2 };
+const snapToIsoGrid = (x: number, y: number): { x: number; y: number } => {
+	// Triangular grid with 60° angles. Row height = ISO_L * sin(60°) ≈ ISO_L * 0.866
+	const rowH = ISO_L * Math.sqrt(3) / 2; // ~45px
+	const row = Math.round(y / rowH);
+	const offset = (((row % 2) + 2) % 2) * (ISO_L / 2);
+	const col = Math.round((x - offset) / ISO_L);
+	return { x: col * ISO_L + offset, y: row * rowH };
 };
 
 const getInitialControlPoint = (start: {x: number, y: number}, end: {x: number, y: number}) => {
@@ -42,20 +30,46 @@ const getInitialControlPoint = (start: {x: number, y: number}, end: {x: number, 
 	};
 };
 
+// Distance from point to line segment
+const distToSegment = (px: number, py: number, x1: number, y1: number, x2: number, y2: number): number => {
+	const dx = x2 - x1; const dy = y2 - y1;
+	const lenSq = dx*dx + dy*dy;
+	if (lenSq === 0) return Math.sqrt((px-x1)**2 + (py-y1)**2);
+	let t = ((px - x1)*dx + (py - y1)*dy) / lenSq;
+	t = Math.max(0, Math.min(1, t));
+	return Math.sqrt((px - x1 - t*dx)**2 + (py - y1 - t*dy)**2);
+};
+
+// Find the closest endpoint of all bonds to a point (for chaining)
+const findNearestBondEndpoint = (bonds: Bond[], x: number, y: number, threshold = 20): {x: number, y: number} | null => {
+	let best: {x: number, y: number} | null = null;
+	let bestDist = threshold;
+	for (const b of bonds) {
+		if (b.x1 === undefined) continue;
+		for (const [ex, ey] of [[b.x1!, b.y1!], [b.x2!, b.y2!]] as [number, number][]) {
+			const d = Math.sqrt((x-ex)**2 + (y-ey)**2);
+			if (d < bestDist) { bestDist = d; best = {x: ex, y: ey}; }
+		}
+	}
+	return best;
+};
+
 export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: string) => void, readOnly?: boolean, mode: DrawingMode, setMode: (m: DrawingMode) => void}> = ({initialData, onChange, readOnly, mode, setMode}) => {
+	// Elements = heteroatoms only in skeletal mode
 	const [elements, setElements] = useState<ElementNode[]>([]);
+	// Bonds store direct x1,y1,x2,y2 coordinates
 	const [bonds, setBonds] = useState<Bond[]>([]);
 	const [annotations, setAnnotations] = useState<Annotation[]>([]);
 	const [history, setHistory] = useState<HistoryState[]>([]);
 	
-	const [activeTool, setActiveTool] = useState<Tool>('select');
-	const [newElementText, setNewElementText] = useState('C');
-	const [groupAlign, setGroupAlign] = useState<'start' | 'middle' | 'end'>('start');
+	const [activeTool, setActiveTool] = useState<Tool>('bond_single');
+	const [newElementText, setNewElementText] = useState('O');
+	const [groupAlign, setGroupAlign] = useState<'start' | 'middle' | 'end'>('middle');
 	const [selectedIds, setSelectedIds] = useState<string[]>([]);
 	const [currentColor, setCurrentColor] = useState<string>('');
 	
 	const [scale, setScale] = useState(1);
-	const [pan, setPan] = useState({x: 0, y: 0});
+	const [pan, setPan] = useState({x: 200, y: 200});
 	
 	const svgRef = useRef<SVGSVGElement>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
@@ -63,15 +77,15 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 	const [dragNodeId, setDragNodeId] = useState<string | null>(null);
 	const [dragItemType, setDragItemType] = useState<'annotation' | 'control' | 'arrow_start' | 'arrow_end' | 'pan' | 'resize' | 'multi_drag' | null>(null);
 	const [dragStartPos, setDragStartPos] = useState({x: 0, y: 0});
-	const [dragInitialState, setDragInitialState] = useState<{elements: ElementNode[], annotations: Annotation[]} | null>(null);
+	const [dragInitialState, setDragInitialState] = useState<{elements: ElementNode[], annotations: Annotation[], bonds: Bond[]} | null>(null);
 	const [selectionBox, setSelectionBox] = useState<{start: {x:number, y:number}, current: {x:number, y:number}} | null>(null);
 	
-	const [drawingBondFrom, setDrawingBondFrom] = useState<string | null>(null);
+	// Chain drawing state: where the current chain "tip" is
+	const [chainEnd, setChainEnd] = useState<{x: number, y: number} | null>(null);
 	const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
 	const [drawingArrow, setDrawingArrow] = useState<{ start: {x: number, y: number}, current: {x: number, y: number} } | null>(null);
 
 	const prevInitialData = useRef<string | undefined>(undefined);
-
 	const isLoaded = useRef(false);
 
 	useEffect(() => {
@@ -83,15 +97,26 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 				setBonds(d.bonds || []);
 				setAnnotations(d.annotations || []);
 				if (d.mode) setMode(d.mode);
-				
-				if (readOnly && d.elements && d.elements.length > 0) {
-					const xs = d.elements.map((e: any) => e.x);
-					const ys = d.elements.map((e: any) => e.y);
-					const minX = Math.min(...xs);
-					const maxX = Math.max(...xs);
-					const minY = Math.min(...ys);
-					const maxY = Math.max(...ys);
-					setPan({x: -(minX + maxX)/2 + 150, y: -(minY + maxY)/2 + 150});
+				if (readOnly && d.bonds && d.bonds.length > 0) {
+					const coords: number[] = [];
+					d.bonds.forEach((b: Bond) => {
+						if (b.x1 !== undefined) { coords.push(b.x1, b.x2!); }
+					});
+					d.elements?.forEach((e: ElementNode) => coords.push(e.x));
+					if (coords.length > 0) {
+						// Auto-center for readOnly
+						const allX: number[] = [];
+						const allY: number[] = [];
+						d.bonds.forEach((b: Bond) => {
+							if (b.x1 !== undefined) { allX.push(b.x1, b.x2!); allY.push(b.y1!, b.y2!); }
+						});
+						d.elements?.forEach((e: ElementNode) => { allX.push(e.x); allY.push(e.y); });
+						if (allX.length > 0) {
+							const minX = Math.min(...allX); const maxX = Math.max(...allX);
+							const minY = Math.min(...allY); const maxY = Math.max(...allY);
+							setPan({x: -(minX + maxX)/2 + 150, y: -(minY + maxY)/2 + 150});
+						}
+					}
 				}
 			} catch(e) {}
 			setTimeout(() => { isLoaded.current = true; }, 0);
@@ -121,6 +146,7 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 				setAnnotations(last.annotations);
 				setHistory(prev => prev.slice(0, prev.length - 1));
 				setSelectedIds([]);
+				setChainEnd(null);
 			}
 		}
 	}, [history, readOnly]);
@@ -129,26 +155,18 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 		if (readOnly) return;
 		if (selectedIds.length === 0) return;
 		pushHistory();
-
 		setElements(elements.filter(e => !selectedIds.includes(e.id)));
-		setBonds(bonds.filter(b => !selectedIds.includes(b.from) && !selectedIds.includes(b.to) && !selectedIds.includes(b.id)));
+		setBonds(bonds.filter(b => !selectedIds.includes(b.id)));
 		setAnnotations(annotations.filter(a => !selectedIds.includes(a.id)));
 		setSelectedIds([]);
 	}, [selectedIds, elements, bonds, annotations, pushHistory, readOnly]);
 
-	// Listeners for Delete key
 	useEffect(() => {
 		if (readOnly) return;
 		const onKeyDown = (e: KeyboardEvent) => {
-			if (e.target instanceof HTMLSelectElement) return;
-			// Allow backspace and delete when inside our particular input fields so it doesn't nuke selected elements accidentally while typing!
-			if (e.target instanceof HTMLInputElement) {
-				if (e.key === 'Delete' || e.key === 'Backspace') return;
-			}
-			
-			if (e.key === 'Delete' || e.key === 'Backspace') {
-				handleDelete();
-			}
+			if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement) return;
+			if (e.key === 'Delete' || e.key === 'Backspace') handleDelete();
+			if (e.key === 'Escape') setChainEnd(null);
 		};
 		window.addEventListener('keydown', onKeyDown);
 		return () => window.removeEventListener('keydown', onKeyDown);
@@ -172,12 +190,12 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 		}
 	};
 
-	// Update selected items color when currentColor changes
 	const handleColorChange = (newColor: string) => {
 		setCurrentColor(newColor);
 		if (selectedIds.length > 0) {
 			pushHistory();
 			setElements(elements.map(e => selectedIds.includes(e.id) ? { ...e, color: newColor } : e));
+			setBonds(bonds.map(b => selectedIds.includes(b.id) ? { ...b, color: newColor } : b));
 			setAnnotations(annotations.map(a => selectedIds.includes(a.id) ? { ...a, color: newColor } : a));
 		}
 	};
@@ -195,15 +213,12 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 		if (e.ctrlKey || e.metaKey || e.shiftKey) { 
 			const zoomDir = e.deltaY > 0 ? 0.9 : 1.1;
 			const newScale = Math.min(Math.max(0.1, scale * zoomDir), 5);
-			
 			if (svgRef.current) {
 				const rect = svgRef.current.getBoundingClientRect();
 				const rawX = e.clientX - rect.left;
 				const rawY = e.clientY - rect.top;
-				
 				const newPanX = rawX - (rawX - pan.x) * (newScale / scale);
 				const newPanY = rawY - (rawY - pan.y) * (newScale / scale);
-				
 				setScale(newScale);
 				setPan({x: newPanX, y: newPanY});
 			}
@@ -214,81 +229,145 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 	
 	useEffect(() => {
 		const el = containerRef.current;
-		const preventZoom = (e: WheelEvent) => {
-			if (e.ctrlKey || e.metaKey) e.preventDefault();
-		};
+		const preventZoom = (e: WheelEvent) => { if (e.ctrlKey || e.metaKey) e.preventDefault(); };
 		if (el) el.addEventListener('wheel', preventZoom, { passive: false });
 		return () => { if (el) el.removeEventListener('wheel', preventZoom); };
 	}, []);
 
-	const handleSvgClick = (e: ReactMouseEvent) => {
+	const handlePointerDownCanvas = (e: ReactMouseEvent) => {
+		if (activeTool === 'pan' || e.button === 1) { setDragItemType('pan'); return; }
 		if (readOnly) return;
-		if (dragNodeId || selectionBox) return;
-		if (activeTool === 'pan' || e.button === 1) return;
-
+		
 		const coords = getMouseCoords(e);
-		const gridPoint = snapToIsoGrid(coords.x, coords.y);
-		const gridX = gridPoint.x;
-		const gridY = gridPoint.y;
 
+		if (activeTool === 'curly_arrow') {
+			setDrawingArrow({ start: coords, current: coords });
+			return;
+		}
 		if (activeTool === 'select') {
-			setSelectedIds([]);
-		} else if (activeTool === 'vertex') {
-			pushHistory();
-			setElements([...elements, { id: generateId(), text: '', x: gridX, y: gridY, color: currentColor, align: 'middle' }]);
-		} else if (activeTool === 'heteroatom') {
-			pushHistory();
-			setElements([...elements, { id: generateId(), text: newElementText, x: gridX, y: gridY, color: currentColor, align: groupAlign }]);
-		} else if (activeTool === 'text') {
-			pushHistory();
-			setAnnotations([...annotations, { id: generateId(), type: 'text', x: gridX, y: gridY, value: newElementText, color: currentColor }]);
-		} else if (activeTool === 'benzene') {
-			pushHistory();
-			setAnnotations([...annotations, { id: generateId(), type: 'benzene', x: gridX, y: gridY, color: currentColor, scale: 1 }]);
-		} else if (activeTool === 'bracket_left') {
-			pushHistory();
-			setAnnotations([...annotations, { id: generateId(), type: 'bracket_left', x: gridX, y: gridY, color: currentColor, scale: 1 }]);
-		} else if (activeTool === 'bracket_right') {
-			pushHistory();
-			setAnnotations([...annotations, { id: generateId(), type: 'bracket_right', x: gridX, y: gridY, color: currentColor, scale: 1 }]);
-		} else if (activeTool === 'charge_plus' || activeTool === 'charge_minus') {
-			pushHistory();
-			setAnnotations([...annotations, { id: generateId(), type: 'charge', x: coords.x, y: coords.y, value: activeTool === 'charge_plus' ? '+' : '-', color: currentColor }]);
-		} else if (activeTool === 'delta_plus' || activeTool === 'delta_minus') {
-			pushHistory();
-			setAnnotations([...annotations, { id: generateId(), type: 'delta_charge', x: coords.x, y: coords.y, value: activeTool === 'delta_plus' ? 'δ+' : 'δ-', color: currentColor }]);
-		} else if (activeTool === 'electron_pair_v') {
-			pushHistory();
-			setAnnotations([...annotations, { id: generateId(), type: 'electron_pair', x: coords.x, y: coords.y, vertical: true, color: currentColor }]);
-		} else if (activeTool === 'electron_pair_h') {
-			pushHistory();
-			setAnnotations([...annotations, { id: generateId(), type: 'electron_pair', x: coords.x, y: coords.y, vertical: false, color: currentColor }]);
-		} else if (activeTool === 'reaction_plus') {
-			pushHistory();
-			setAnnotations([...annotations, { id: generateId(), type: 'reaction_plus', x: coords.x, y: coords.y, value: '+', color: currentColor }]);
-		} else if (activeTool === 'reaction_arrow') {
-			pushHistory();
-			setAnnotations([...annotations, { id: generateId(), type: 'reaction_arrow', x: coords.x, y: coords.y, value: '→', color: currentColor }]);
-		} else if (activeTool.startsWith('bond_')) {
-			pushHistory();
-			const newId = generateId();
+			if (!e.shiftKey) setSelectedIds([]);
+			setSelectionBox({ start: coords, current: coords });
+			setChainEnd(null);
+			return;
+		}
+
+		const snap = snapToIsoGrid(coords.x, coords.y);
+
+		// Chain/bond drawing: click creates a new bone segment
+		if (activeTool === 'bond_single' || activeTool === 'bond_dotted') {
 			const type = activeTool.replace('bond_', '') as BondType;
-			const newEl = { id: newId, text: '', x: gridX, y: gridY, color: currentColor, align: 'middle' as const };
-			
-			if (drawingBondFrom) {
-				setBonds([...bonds, { id: generateId(), from: drawingBondFrom, to: newId, type }]);
+			// Snap to an existing endpoint if close enough
+			const nearEnd = findNearestBondEndpoint(bonds, snap.x, snap.y, 25);
+			const startPt = nearEnd || snap;
+			if (chainEnd) {
+				pushHistory();
+				const nearest = findNearestBondEndpoint(bonds, chainEnd.x, chainEnd.y, 5);
+				const from = nearest || chainEnd;
+				setBonds(prev => [...prev, { id: generateId(), from: '', to: '', type, x1: from.x, y1: from.y, x2: snap.x, y2: snap.y, color: currentColor || undefined }]);
+				setChainEnd(snap);
+			} else {
+				// Start a new chain: set the tip without drawing yet
+				setChainEnd(startPt);
 			}
-			setElements([...elements, newEl]);
-			setDrawingBondFrom(newId);
+			return;
+		}
+
+		// Place heteroatom at clicked position (nearest grid point)
+		if (activeTool === 'heteroatom') {
+			pushHistory();
+			setElements(prev => [...prev, { id: generateId(), text: newElementText, x: snap.x, y: snap.y, color: currentColor || undefined, align: groupAlign }]);
+			return;
+		}
+
+		// Text label
+		if (activeTool === 'text') {
+			pushHistory();
+			setAnnotations(prev => [...prev, { id: generateId(), type: 'text', x: snap.x, y: snap.y, value: newElementText, color: currentColor || undefined }]);
+			return;
+		}
+
+		// Benzene ring
+		if (activeTool === 'benzene') {
+			pushHistory();
+			setAnnotations(prev => [...prev, { id: generateId(), type: 'benzene', x: snap.x, y: snap.y, color: currentColor || undefined, scale: 1 }]);
+			return;
+		}
+
+		// Brackets
+		if (activeTool === 'bracket_left') {
+			pushHistory();
+			setAnnotations(prev => [...prev, { id: generateId(), type: 'bracket_left', x: coords.x, y: coords.y, color: currentColor || undefined, scale: 1 }]);
+			return;
+		}
+		if (activeTool === 'bracket_right') {
+			pushHistory();
+			setAnnotations(prev => [...prev, { id: generateId(), type: 'bracket_right', x: coords.x, y: coords.y, color: currentColor || undefined, scale: 1 }]);
+			return;
+		}
+
+		// Charges & reaction symbols
+		if (activeTool === 'charge_plus' || activeTool === 'charge_minus') {
+			pushHistory();
+			setAnnotations(prev => [...prev, { id: generateId(), type: 'charge', x: coords.x, y: coords.y, value: activeTool === 'charge_plus' ? '+' : '-', color: currentColor || undefined }]);
+			return;
+		}
+		if (activeTool === 'delta_plus' || activeTool === 'delta_minus') {
+			pushHistory();
+			setAnnotations(prev => [...prev, { id: generateId(), type: 'delta_charge', x: coords.x, y: coords.y, value: activeTool === 'delta_plus' ? 'δ+' : 'δ-', color: currentColor || undefined }]);
+			return;
+		}
+		if (activeTool === 'electron_pair_v') {
+			pushHistory();
+			setAnnotations(prev => [...prev, { id: generateId(), type: 'electron_pair', x: coords.x, y: coords.y, vertical: true, color: currentColor || undefined }]);
+			return;
+		}
+		if (activeTool === 'electron_pair_h') {
+			pushHistory();
+			setAnnotations(prev => [...prev, { id: generateId(), type: 'electron_pair', x: coords.x, y: coords.y, vertical: false, color: currentColor || undefined }]);
+			return;
+		}
+		if (activeTool === 'reaction_plus') {
+			pushHistory();
+			setAnnotations(prev => [...prev, { id: generateId(), type: 'reaction_plus', x: coords.x, y: coords.y, value: '+', color: currentColor || undefined }]);
+			return;
+		}
+		if (activeTool === 'reaction_arrow') {
+			pushHistory();
+			setAnnotations(prev => [...prev, { id: generateId(), type: 'reaction_arrow', x: coords.x, y: coords.y, value: '→', color: currentColor || undefined }]);
+			return;
+		}
+		if (activeTool === 'reaction_reversible') {
+			pushHistory();
+			setAnnotations(prev => [...prev, { id: generateId(), type: 'reaction_reversible', x: coords.x, y: coords.y, value: '⇌', color: currentColor || undefined }]);
+			return;
+		}
+	};
+
+	// Click on an existing bond to upgrade its type (Double / Triple / Dotted)
+	const handlePointerDownBond = (e: ReactMouseEvent, id: string) => {
+		if (readOnly) return;
+		e.stopPropagation();
+		setChainEnd(null);
+		if (activeTool === 'select') {
+			if (!e.shiftKey) setSelectedIds([id]);
+			else if (!selectedIds.includes(id)) setSelectedIds([...selectedIds, id]);
+		} else if (activeTool === 'bond_double' || activeTool === 'bond_triple' || activeTool === 'bond_dotted') {
+			const type = activeTool.replace('bond_', '') as BondType;
+			pushHistory();
+			setBonds(bonds.map(b => b.id === id ? { ...b, type } : b));
+		} else if (activeTool === 'bond_single') {
+			// Continue chain from nearest endpoint
+			const bond = bonds.find(b => b.id === id);
+			if (bond && bond.x2 !== undefined) {
+				setChainEnd({ x: bond.x2, y: bond.y2! });
+			}
 		}
 	};
 
 	const handlePointerDownElement = (e: ReactMouseEvent, id: string) => {
 		if (readOnly) return;
 		e.stopPropagation();
-		if (e.button === 1 || activeTool === 'pan') {
-			setDragItemType('pan'); return;
-		}
+		if (e.button === 1 || activeTool === 'pan') { setDragItemType('pan'); return; }
 		if (activeTool === 'select') {
 			if (!e.shiftKey && !selectedIds.includes(id)) {
 				setSelectedIds([id]);
@@ -300,33 +379,14 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 			setDragNodeId(id);
 			setDragItemType('multi_drag');
 			setDragStartPos(getMouseCoords(e));
-			setDragInitialState({ elements, annotations });
-		} else if (activeTool.startsWith('bond_')) {
-			// If clicking an existing element with a bond tool, select it as the start point
-			setDrawingBondFrom(id);
+			setDragInitialState({ elements, annotations, bonds });
 		}
-	};
-
-	const handlePointerUpElement = (e: ReactMouseEvent, id: string) => {
-		if (readOnly) return;
-		e.stopPropagation();
-		if (drawingBondFrom && drawingBondFrom !== id) {
-			pushHistory();
-			const type = activeTool.replace('bond_', '') as BondType;
-			setBonds([...bonds, { id: generateId(), from: drawingBondFrom, to: id, type }]);
-			// Chain the drawing
-			setDrawingBondFrom(id);
-		}
-		setDragNodeId(null);
-		setDragItemType(null);
 	};
 
 	const handlePointerDownAnnotation = (e: ReactMouseEvent, id: string) => {
 		if (readOnly) return;
 		e.stopPropagation();
-		if (e.button === 1 || activeTool === 'pan') {
-			setDragItemType('pan'); return;
-		}
+		if (e.button === 1 || activeTool === 'pan') { setDragItemType('pan'); return; }
 		if (activeTool === 'select') {
 			if (!e.shiftKey && !selectedIds.includes(id)) {
 				setSelectedIds([id]);
@@ -340,33 +400,7 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 			setDragNodeId(id);
 			setDragItemType('multi_drag');
 			setDragStartPos(getMouseCoords(e));
-			setDragInitialState({ elements, annotations });
-		}
-	};
-
-	const handlePointerDownBond = (e: ReactMouseEvent, id: string) => {
-		if (readOnly) return;
-		e.stopPropagation();
-		if (activeTool === 'select') {
-			if (!e.shiftKey) setSelectedIds([id]);
-			else if (!selectedIds.includes(id)) setSelectedIds([...selectedIds, id]);
-		}
-	};
-
-	const handlePointerDownCanvas = (e: ReactMouseEvent) => {
-		if (activeTool === 'pan' || e.button === 1) {
-			setDragItemType('pan'); return;
-		}
-		if (readOnly) return;
-		
-		const coords = getMouseCoords(e);
-		if (activeTool === 'curly_arrow') {
-			setDrawingArrow({ start: coords, current: coords });
-		} else if (activeTool === 'select') {
-			if (!e.shiftKey) setSelectedIds([]);
-			setSelectionBox({ start: coords, current: coords });
-		} else {
-			handleSvgClick(e);
+			setDragInitialState({ elements, annotations, bonds });
 		}
 	};
 
@@ -381,31 +415,21 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 	};
 
 	const handlePointerMove = (e: ReactMouseEvent) => {
-		if (dragItemType === 'pan') {
-			setPan({ x: pan.x + e.movementX, y: pan.y + e.movementY });
-			return;
-		}
-
+		if (dragItemType === 'pan') { setPan({ x: pan.x + e.movementX, y: pan.y + e.movementY }); return; }
 		if (readOnly) return;
 		const coords = getMouseCoords(e);
-		const gridPoint = snapToIsoGrid(coords.x, coords.y);
-		setMousePos({ x: gridPoint.x, y: gridPoint.y });
+		const snap = snapToIsoGrid(coords.x, coords.y);
+		setMousePos({ x: snap.x, y: snap.y });
 
-		if (selectionBox) {
-			setSelectionBox({ ...selectionBox, current: coords });
-		}
+		if (selectionBox) { setSelectionBox({ ...selectionBox, current: coords }); }
 
 		if (dragNodeId && activeTool === 'select') {
 			if (dragItemType === 'multi_drag' && dragInitialState) {
-				const dx = snapToIsoGrid(coords.x, coords.y).x - snapToIsoGrid(dragStartPos.x, dragStartPos.y).x;
-				const dy = snapToIsoGrid(coords.x, coords.y).y - snapToIsoGrid(dragStartPos.x, dragStartPos.y).y;
-				
-				setElements(dragInitialState.elements.map(el => 
-					selectedIds.includes(el.id) ? { ...el, x: el.x + dx, y: el.y + dy } : el
-				));
-				setAnnotations(dragInitialState.annotations.map(a => 
-					selectedIds.includes(a.id) && !a.points ? { ...a, x: a.x + dx, y: a.y + dy } : a
-				));
+				const dx = coords.x - dragStartPos.x;
+				const dy = coords.y - dragStartPos.y;
+				setElements(dragInitialState.elements.map(el => selectedIds.includes(el.id) ? { ...el, x: el.x + dx, y: el.y + dy } : el));
+				setBonds(dragInitialState.bonds.map(b => selectedIds.includes(b.id) && b.x1 !== undefined ? { ...b, x1: b.x1! + dx, y1: b.y1! + dy, x2: b.x2! + dx, y2: b.y2! + dy } : b));
+				setAnnotations(dragInitialState.annotations.map(a => selectedIds.includes(a.id) && !a.points ? { ...a, x: a.x + dx, y: a.y + dy } : a));
 			} else if (dragItemType === 'control') {
 				setAnnotations(annotations.map(a => a.id === dragNodeId ? { ...a, control: { x: coords.x, y: coords.y } } : a));
 			} else if (dragItemType === 'arrow_start') {
@@ -428,142 +452,121 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 				}
 			}
 		}
-
-		if (drawingArrow) {
-			setDrawingArrow({ ...drawingArrow, current: coords });
-		}
+		if (drawingArrow) { setDrawingArrow({ ...drawingArrow, current: coords }); }
 	};
 
 	const handlePointerUp = (e: ReactMouseEvent) => {
-		if (dragItemType === 'pan') {
-			setDragItemType(null); return;
-		}
+		if (dragItemType === 'pan') { setDragItemType(null); return; }
 		if (readOnly) return;
 		if (dragNodeId) pushHistory();
-		if (drawingBondFrom) setDrawingBondFrom(null);
-		
+
 		if (selectionBox) {
 			const minX = Math.min(selectionBox.start.x, selectionBox.current.x);
 			const maxX = Math.max(selectionBox.start.x, selectionBox.current.x);
 			const minY = Math.min(selectionBox.start.y, selectionBox.current.y);
 			const maxY = Math.max(selectionBox.start.y, selectionBox.current.y);
-			
 			const newSelected: string[] = [];
-			elements.forEach(e => {
-				if (e.x >= minX && e.x <= maxX && e.y >= minY && e.y <= maxY) newSelected.push(e.id);
-			});
-			annotations.forEach(a => {
-				if (a.x >= minX && a.x <= maxX && a.y >= minY && a.y <= maxY) newSelected.push(a.id);
-			});
-			const newlyEmerged = Array.from(new Set([...selectedIds, ...newSelected]));
-			setSelectedIds(newlyEmerged);
-			setSelectionBox(null);
-			if (newlyEmerged.length === 1) {
-				const id = newlyEmerged[0];
-				const el = elements.find(e => e.id === id);
-				if (el) setNewElementText(el.text);
-				const ann = annotations.find(a => a.id === id);
-				if (ann && (ann.type === 'text' || ann.type === 'charge' || ann.type === 'delta_charge' || ann.type.startsWith('reaction_'))) {
-					setNewElementText(ann.value || '');
+			elements.forEach(e => { if (e.x >= minX && e.x <= maxX && e.y >= minY && e.y <= maxY) newSelected.push(e.id); });
+			bonds.forEach(b => {
+				if (b.x1 !== undefined) {
+					const cx = (b.x1 + b.x2!) / 2; const cy = (b.y1! + b.y2!) / 2;
+					if (cx >= minX && cx <= maxX && cy >= minY && cy <= maxY) newSelected.push(b.id);
 				}
-			}
+			});
+			annotations.forEach(a => { if (a.x >= minX && a.x <= maxX && a.y >= minY && a.y <= maxY) newSelected.push(a.id); });
+			setSelectedIds(Array.from(new Set([...selectedIds, ...newSelected])));
+			setSelectionBox(null);
 		}
 
-		if (dragNodeId) {
-			setDragNodeId(null);
-			setDragItemType(null);
-			setDragInitialState(null);
-		}
+		if (dragNodeId) { setDragNodeId(null); setDragItemType(null); setDragInitialState(null); }
+		
 		if (drawingArrow) {
 			pushHistory();
 			const type = activeTool as AnnotationType;
 			setAnnotations([...annotations, { 
-				id: generateId(), 
-				type,
-				x: drawingArrow.start.x, 
-				y: drawingArrow.start.y,
+				id: generateId(), type, x: drawingArrow.start.x, y: drawingArrow.start.y,
 				points: [drawingArrow.start, drawingArrow.current],
 				control: getInitialControlPoint(drawingArrow.start, drawingArrow.current),
-				color: currentColor
+				color: currentColor || undefined
 			}]);
 			setDrawingArrow(null);
 			setActiveTool('select');
 		}
 	};
 
-	const renderBond = (bond: Bond) => {
-		const fromEl = elements.find(e => e.id === bond.from);
-		const toEl = elements.find(e => e.id === bond.to);
-		if (!fromEl || !toEl) return null;
+	// Render a single skeletal bond with correct double/triple styling
+	const renderBond = (bond: Bond): React.ReactElement | null => {
+		if (bond.x1 === undefined) return null;
+		const x1 = bond.x1, y1 = bond.y1!, x2 = bond.x2!, y2 = bond.y2!;
+		const dx = x2 - x1; const dy = y2 - y1;
+		const len = Math.sqrt(dx*dx + dy*dy);
+		if (len === 0) return null;
+		const ux = dx / len; const uy = dy / len; // unit along bond
+		const nx = -uy; const ny = ux; // normal (perpendicular)
 
-		const dx = toEl.x - fromEl.x;
-		const dy = toEl.y - fromEl.y;
-		const dist = Math.sqrt(dx*dx + dy*dy);
-		const radius1 = (fromEl.text && fromEl.text !== '') ? 12 * (fromEl.scale || 1) : 0;
-		const radius2 = (toEl.text && toEl.text !== '') ? 12 * (toEl.scale || 1) : 0;
+		const isSelected = selectedIds.includes(bond.id) && !readOnly;
+		const strokeCol = isSelected ? 'var(--color-red, #f02020)' : (bond.color || 'var(--text-normal)');
+		const sw = isSelected ? 3 : 2;
 
-		let startX = fromEl.x; let startY = fromEl.y;
-		let endX = toEl.x; let endY = toEl.y;
+		const OFFSET = 4; // perpendicular separation for double/triple
+		const SHORT = 0.12; // fraction to shorten each end for inner lines
+		const s = SHORT * len;
 
-		if (dist > radius1 + radius2) {
-			startX = fromEl.x + (dx/dist) * radius1;
-			startY = fromEl.y + (dy/dist) * radius1;
-			endX = toEl.x - (dx/dist) * radius2;
-			endY = toEl.y - (dy/dist) * radius2;
-		}
-
-		const ndx = endX - startX;
-		const ndy = endY - startY;
-		const angle = Math.atan2(ndy, ndx);
-		const offsetX = Math.sin(angle) * 4;
-		const offsetY = Math.cos(angle) * 4;
-
-		let paths = [];
-		const isSelected = selectedIds.includes(bond.id);
-		const strokeColor = isSelected && !readOnly ? "var(--color-red, #f02020)" : "var(--text-normal)";
-
-		if (bond.type === 'single' || bond.type === 'dotted') {
-			paths.push(<line key="mid" x1={startX} y1={startY} x2={endX} y2={endY} stroke={strokeColor} strokeWidth={isSelected ? "3" : "2"} strokeDasharray={bond.type === 'dotted' ? "4 4" : "none"} />);
+		const lines: React.ReactElement[] = [];
+		if (bond.type === 'single') {
+			lines.push(<line key="m" x1={x1} y1={y1} x2={x2} y2={y2} stroke={strokeCol} strokeWidth={sw} />);
+		} else if (bond.type === 'dotted') {
+			lines.push(<line key="m" x1={x1} y1={y1} x2={x2} y2={y2} stroke={strokeCol} strokeWidth={sw} strokeDasharray="4 4" />);
 		} else if (bond.type === 'double') {
-			paths.push(<line key="offset1" x1={startX - offsetX} y1={startY + offsetY} x2={endX - offsetX} y2={endY + offsetY} stroke={strokeColor} strokeWidth={isSelected ? "3" : "2"} />);
-			paths.push(<line key="offset2" x1={startX + offsetX} y1={startY - offsetY} x2={endX + offsetX} y2={endY - offsetY} stroke={strokeColor} strokeWidth={isSelected ? "3" : "2"} />);
+			// Main line (full length)
+			lines.push(<line key="m" x1={x1} y1={y1} x2={x2} y2={y2} stroke={strokeCol} strokeWidth={sw} />);
+			// Shorter inner line: offset to one side, slightly shorter at both ends
+			lines.push(<line key="d"
+				x1={x1 + ux*s + nx*OFFSET} y1={y1 + uy*s + ny*OFFSET}
+				x2={x2 - ux*s + nx*OFFSET} y2={y2 - uy*s + ny*OFFSET}
+				stroke={strokeCol} strokeWidth={sw} />);
 		} else if (bond.type === 'triple') {
-			paths.push(<line key="mid" x1={startX} y1={startY} x2={endX} y2={endY} stroke={strokeColor} strokeWidth={isSelected ? "3" : "2"} />);
-			paths.push(<line key="offset1" x1={startX - offsetX*2} y1={startY + offsetY*2} x2={endX - offsetX*2} y2={endY + offsetY*2} stroke={strokeColor} strokeWidth={isSelected ? "3" : "2"} />);
-			paths.push(<line key="offset2" x1={startX + offsetX*2} y1={startY - offsetY*2} x2={endX + offsetX*2} y2={endY - offsetY*2} stroke={strokeColor} strokeWidth={isSelected ? "3" : "2"} />);
+			// Main line (full length)
+			lines.push(<line key="m" x1={x1} y1={y1} x2={x2} y2={y2} stroke={strokeCol} strokeWidth={sw} />);
+			// Two shorter lines on each side
+			lines.push(<line key="da"
+				x1={x1 + ux*s - nx*OFFSET} y1={y1 + uy*s - ny*OFFSET}
+				x2={x2 - ux*s - nx*OFFSET} y2={y2 - uy*s - ny*OFFSET}
+				stroke={strokeCol} strokeWidth={sw} />);
+			lines.push(<line key="db"
+				x1={x1 + ux*s + nx*OFFSET} y1={y1 + uy*s + ny*OFFSET}
+				x2={x2 - ux*s + nx*OFFSET} y2={y2 - uy*s + ny*OFFSET}
+				stroke={strokeCol} strokeWidth={sw} />);
 		}
 
 		return (
-			<g key={bond.id} onPointerDown={(e) => handlePointerDownBond(e, bond.id)} style={{ cursor: activeTool === 'select' && !readOnly ? 'pointer' : 'default' }}>
-				{!readOnly && <line x1={startX} y1={startY} x2={endX} y2={endY} stroke="transparent" strokeWidth="15" />}
-				{paths}
+			<g key={bond.id} onPointerDown={e => handlePointerDownBond(e, bond.id)}
+				style={{ cursor: activeTool === 'select' && !readOnly ? 'pointer' : (activeTool.startsWith('bond_') ? 'pointer' : 'default') }}>
+				{/* Fat invisible hit area */}
+				<line x1={x1} y1={y1} x2={x2} y2={y2} stroke="transparent" strokeWidth="16" />
+				{lines}
 			</g>
 		);
 	};
 
-	let viewBoxFull = undefined;
+	// Compute viewBox for readOnly embed
+	let viewBoxFull = undefined as string | undefined;
 	if (readOnly) {
 		let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
-		const tryInclude = (x: number, y: number) => {
+		const inc = (x: number, y: number) => {
 			if (isNaN(x) || isNaN(y)) return;
 			if (x < minX) minX = x; if (x > maxX) maxX = x;
 			if (y < minY) minY = y; if (y > maxY) maxY = y;
 		};
-
-		elements.forEach(e => { tryInclude(e.x - 20, e.y - 20); tryInclude(e.x + 20, e.y + 20); });
+		bonds.forEach(b => { if (b.x1 !== undefined) { inc(b.x1, b.y1!); inc(b.x2!, b.y2!); } });
+		elements.forEach(e => { inc(e.x - 20, e.y - 20); inc(e.x + 20, e.y + 20); });
 		annotations.forEach(a => {
-			if (a.points) {
-				a.points.forEach(p => tryInclude(p.x, p.y));
-			} else {
-				tryInclude(a.x - 15, a.y - 15); tryInclude(a.x + 15, a.y + 15);
-			}
-			if (a.control) {
-				tryInclude(a.control.x, a.control.y);
-			}
+			if (a.points) a.points.forEach(p => inc(p.x, p.y));
+			else { inc(a.x - 15, a.y - 15); inc(a.x + 15, a.y + 15); }
+			if (a.control) inc(a.control.x, a.control.y);
 		});
-		
 		if (minX !== Infinity) {
-			const pad = 10;
+			const pad = 15;
 			viewBoxFull = `${minX - pad} ${minY - pad} ${maxX - minX + pad*2} ${maxY - minY + pad*2}`;
 		}
 	}
@@ -573,7 +576,7 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 			{!readOnly && (
 				<SkeletalToolbar 
 					mode={mode} setMode={setMode}
-					activeTool={activeTool} setActiveTool={setActiveTool}
+					activeTool={activeTool} setActiveTool={(tool) => { setActiveTool(tool); setChainEnd(null); }}
 					handleUndo={handleUndo} canUndo={history.length > 0}
 					selectedIds={selectedIds} handleDelete={handleDelete}
 					newElementText={newElementText} setNewElementText={setNewElementText}
@@ -586,7 +589,7 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 			<div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: readOnly ? 'transparent' : 'var(--background-primary)' }}>
 				<svg 
 					ref={svgRef} 
-					width={readOnly && viewBoxFull ? "100%" : "100%"}
+					width="100%"
 					height={readOnly && viewBoxFull ? "auto" : "100%"}
 					viewBox={viewBoxFull}
 					style={{ touchAction: 'none', maxHeight: readOnly ? "500px" : undefined }}
@@ -597,40 +600,33 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 					onWheel={handleWheel}
 				>
 					<defs>
-						<pattern id="isoGrid" width="51.9615" height="30" patternUnits="userSpaceOnUse" patternTransform={`translate(${pan.x}, ${pan.y}) scale(${scale})`}>
+						<pattern id="isoGrid" width="52" height="45" patternUnits="userSpaceOnUse" patternTransform={`translate(${pan.x}, ${pan.y}) scale(${scale})`}>
+							{/* Isometric dot grid */}
 							<circle cx="0" cy="0" r="1.5" fill="var(--background-modifier-border)" />
-							<circle cx="25.9808" cy="15" r="1.5" fill="var(--background-modifier-border)" />
+							<circle cx="26" cy="22.5" r="1.5" fill="var(--background-modifier-border)" />
+							<circle cx="52" cy="45" r="1.5" fill="var(--background-modifier-border)" />
+							<circle cx="52" cy="0" r="1.5" fill="var(--background-modifier-border)" />
+							<circle cx="26" cy="22.5" r="1.5" fill="var(--background-modifier-border)" />
 						</pattern>
-						<marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
-							<polygon points="0 0, 10 3.5, 0 7" fill="var(--text-normal)" />
-						</marker>
-						<marker id="arrowhead-color" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
-							<polygon points="0 0, 10 3.5, 0 7" fill="context-stroke" />
-						</marker>
-						{/* Reversible arrows */}
-						<marker id="rev-top" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
-							<polygon points="0 3.5, 10 3.5, 0 0" fill="context-stroke" />
-						</marker>
-						<marker id="rev-bot" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto" markerUnits="strokeWidth">
-							<polygon points="0 3.5, 10 3.5, 0 7" fill="context-stroke" />
-						</marker>
-						{/* Curly arrows */}
 						<marker id="curlyhead" markerWidth="6" markerHeight="4.5" refX="5" refY="2.25" orient="auto">
 							<polygon points="0 0, 6 2.25, 0 4.5" fill="var(--text-normal)" />
+						</marker>
+						<marker id="curlyhead-selected" markerWidth="6" markerHeight="4.5" refX="5" refY="2.25" orient="auto">
+							<polygon points="0 0, 6 2.25, 0 4.5" fill="var(--color-red, #f02020)" />
 						</marker>
 						<marker id="curlyhead-color" markerWidth="6" markerHeight="4.5" refX="5" refY="2.25" orient="auto" markerUnits="strokeWidth">
 							<polygon points="0 0, 6 2.25, 0 4.5" fill="context-stroke" />
 						</marker>
 					</defs>
 					
-					{/* Render seamless grid */}
-					{!readOnly && <rect x="-10000" y="-10000" width="20000" height="20000" fill="url(#isoGrid)" onPointerDown={handlePointerDownCanvas} style={{ cursor: activeTool === 'pan' ? 'grab' : 'crosshair' }} />}
+					{/* Isometric dot grid background */}
+					{!readOnly && <rect x="-10000" y="-10000" width="20000" height="20000" fill="url(#isoGrid)" style={{ cursor: activeTool === 'pan' ? 'grab' : (activeTool === 'bond_single' || activeTool === 'bond_dotted' ? 'crosshair' : 'default') }} />}
 
 					<g transform={`translate(${readOnly ? 0 : pan.x}, ${readOnly ? 0 : pan.y}) scale(${readOnly ? 1 : scale})`}>
-						
-						{/* Selection Box overlay */}
+
+						{/* Selection box */}
 						{selectionBox && (
-							<rect 
+							<rect
 								x={Math.min(selectionBox.start.x, selectionBox.current.x)}
 								y={Math.min(selectionBox.start.y, selectionBox.current.y)}
 								width={Math.abs(selectionBox.current.x - selectionBox.start.x)}
@@ -639,38 +635,46 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 							/>
 						)}
 
-						{/* Draw active bond line */}
-						{drawingBondFrom && (() => {
-							const fromEl = elements.find(e => e.id === drawingBondFrom);
-							if (fromEl) {
-								return <line x1={fromEl.x} y1={fromEl.y} x2={mousePos.x} y2={mousePos.y} stroke="var(--text-muted)" strokeWidth="2" strokeDasharray="4" />;
-							}
-							return null;
-						})()}
+						{/* Chain preview line while drawing */}
+						{chainEnd && (activeTool === 'bond_single' || activeTool === 'bond_dotted') && (
+							<line
+								x1={chainEnd.x} y1={chainEnd.y}
+								x2={mousePos.x} y2={mousePos.y}
+								stroke="var(--text-muted)" strokeWidth="2" strokeDasharray="6 4"
+							/>
+						)}
 
-						{/* Draw active drawing arrow */}
+						{/* Curly arrow preview */}
 						{drawingArrow && activeTool === 'curly_arrow' && (() => {
 							const c = getInitialControlPoint(drawingArrow.start, drawingArrow.current);
-							return <path 
-								d={`M ${drawingArrow.start.x} ${drawingArrow.start.y} Q ${c.x} ${c.y} ${drawingArrow.current.x} ${drawingArrow.current.y}`} 
-								fill="none" stroke={currentColor} strokeWidth="2" strokeDasharray="4"
-								markerEnd="url(#curlyhead)" 
+							return <path
+								d={`M ${drawingArrow.start.x} ${drawingArrow.start.y} Q ${c.x} ${c.y} ${drawingArrow.current.x} ${drawingArrow.current.y}`}
+								fill="none" stroke={currentColor || 'var(--text-normal)'} strokeWidth="2" strokeDasharray="4"
+								markerEnd="url(#curlyhead)"
 							/>;
 						})()}
 
 						{/* Bonds */}
 						{bonds.map(renderBond)}
 
-						{/* Elements */}
+						{/* Heteroatoms */}
 						{elements.map(el => {
 							const isSelected = selectedIds.includes(el.id) && !readOnly;
-							const isEmptyNode = !el.text || el.text === '';
 							return (
-								<g key={el.id} transform={`translate(${el.x}, ${el.y}) scale(${el.scale || 1})`} onPointerDown={(e) => handlePointerDownElement(e, el.id)} onPointerUp={(e) => handlePointerUpElement(e, el.id)} style={{ cursor: 'pointer' }}>
-									{!isEmptyNode && <text textAnchor={el.align || "middle"} dx={el.align === 'start' ? -6 : el.align === 'end' ? 6 : 0} dominantBaseline="central" fill={el.color || "var(--text-normal)"} fontWeight="bold" fontSize="16px" style={{ userSelect: 'none' }}>{el.text}</text>}
-									<circle cx="0" cy="0" r="15" fill="transparent" />
+								<g key={el.id} transform={`translate(${el.x}, ${el.y}) scale(${el.scale || 1})`}
+									onPointerDown={(e) => handlePointerDownElement(e, el.id)}
+									style={{ cursor: activeTool === 'select' && !readOnly ? 'move' : 'default' }}>
+									{/* Erase the bond behind the label for clean rendering */}
+									<text textAnchor={el.align || "middle"} dx={el.align === 'start' ? -6 : el.align === 'end' ? 6 : 0}
+										dominantBaseline="central" fill="var(--background-primary)"
+										fontWeight="bold" fontSize="16px" stroke="var(--background-primary)" strokeWidth="5"
+										style={{ userSelect: 'none' }}>{el.text}</text>
+									<text textAnchor={el.align || "middle"} dx={el.align === 'start' ? -6 : el.align === 'end' ? 6 : 0}
+										dominantBaseline="central" fill={el.color || "var(--text-normal)"}
+										fontWeight="bold" fontSize="16px" style={{ userSelect: 'none' }}>{el.text}</text>
 									{isSelected && activeTool === 'select' && (
-										<rect x={isEmptyNode ? 4 : (el.align === 'end' ? -14 : (el.align === 'start' ? 14 : 8))} y={isEmptyNode ? 4 : 8} width="6" height="6" fill="var(--color-blue, #2080f0)" cursor="se-resize" onPointerDown={(e) => { e.stopPropagation(); setDragItemType('resize'); setDragNodeId(el.id); }} />
+										<rect x="8" y="8" width="6" height="6" fill="var(--color-blue, #2080f0)" cursor="se-resize"
+											onPointerDown={(e) => { e.stopPropagation(); setDragItemType('resize'); setDragNodeId(el.id); }} />
 									)}
 								</g>
 							);
@@ -696,7 +700,7 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 								return (
 									<g key={ann.id} transform={`translate(${ann.x}, ${ann.y}) scale(${ann.scale || 1})`} onPointerDown={(e) => handlePointerDownAnnotation(e, ann.id)} style={{ cursor: activeTool === 'select' && !readOnly ? 'move' : 'default' }}>
 										{isSelected && <rect x="-15" y="-35" width="25" height="70" fill="transparent" stroke="var(--color-red, #f02020)" strokeDasharray="2" />}
-										<path d="M 0 -30 L -10 -30 L -10 30 L 0 30" fill="none" stroke={ann.color || "var(--text-normal)"} strokeWidth="2" strokeLinecap="square" strokeLinejoin="miter" />
+										<path d="M 0 -30 L -10 -30 L -10 30 L 0 30" fill="none" stroke={ann.color || "var(--text-normal)"} strokeWidth="2" strokeLinecap="square" />
 										{isSelected && activeTool === 'select' && (
 											<rect x="-5" y="25" width="6" height="6" fill="var(--color-blue, #2080f0)" cursor="se-resize" onPointerDown={(e) => { e.stopPropagation(); setDragItemType('resize'); setDragNodeId(ann.id); }} />
 										)}
@@ -706,7 +710,7 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 								return (
 									<g key={ann.id} transform={`translate(${ann.x}, ${ann.y}) scale(${ann.scale || 1})`} onPointerDown={(e) => handlePointerDownAnnotation(e, ann.id)} style={{ cursor: activeTool === 'select' && !readOnly ? 'move' : 'default' }}>
 										{isSelected && <rect x="-10" y="-35" width="25" height="70" fill="transparent" stroke="var(--color-red, #f02020)" strokeDasharray="2" />}
-										<path d="M 0 -30 L 10 -30 L 10 30 L 0 30" fill="none" stroke={ann.color || "var(--text-normal)"} strokeWidth="2" strokeLinecap="square" strokeLinejoin="miter" />
+										<path d="M 0 -30 L 10 -30 L 10 30 L 0 30" fill="none" stroke={ann.color || "var(--text-normal)"} strokeWidth="2" strokeLinecap="square" />
 										{isSelected && activeTool === 'select' && (
 											<rect x="5" y="25" width="6" height="6" fill="var(--color-blue, #2080f0)" cursor="se-resize" onPointerDown={(e) => { e.stopPropagation(); setDragItemType('resize'); setDragNodeId(ann.id); }} />
 										)}
@@ -716,7 +720,6 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 								const isReact = ann.type.startsWith('reaction_');
 								return (
 									<g key={ann.id} transform={`translate(${ann.x}, ${ann.y}) scale(${ann.scale || 1})`} onPointerDown={(e) => handlePointerDownAnnotation(e, ann.id)} style={{ cursor: activeTool === 'select' && !readOnly ? 'move' : 'default' }}>
-										{isSelected && !isReact && <circle r="12" fill="transparent" stroke="var(--color-red, #f02020)" strokeDasharray="2" />}
 										{isSelected && isReact && <rect x="-14" y="-14" width="28" height="28" fill="transparent" stroke="var(--color-red, #f02020)" strokeDasharray="2" />}
 										<text textAnchor="middle" dominantBaseline="central" fill={ann.color || "var(--text-normal)"} fontSize={isReact ? "24px" : "14px"} fontWeight="bold" style={{ userSelect: 'none' }}>{ann.value}</text>
 										{isSelected && activeTool === 'select' && (
@@ -729,18 +732,9 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 									<g key={ann.id} transform={`translate(${ann.x}, ${ann.y}) scale(${ann.scale || 1})`} onPointerDown={(e) => handlePointerDownAnnotation(e, ann.id)} style={{ cursor: activeTool === 'select' && !readOnly ? 'move' : 'default' }}>
 										<rect x="-8" y="-8" width="16" height="16" fill={isSelected ? strokeColor : "transparent"} opacity="0.3" rx="4" />
 										{ann.vertical ? (
-											<>
-												<circle cx="0" cy="-3.5" r="2.5" fill={ann.color || "var(--text-normal)"} />
-												<circle cx="0" cy="3.5" r="2.5" fill={ann.color || "var(--text-normal)"} />
-											</>
+											<><circle cx="0" cy="-3.5" r="2.5" fill={ann.color || "var(--text-normal)"} /><circle cx="0" cy="3.5" r="2.5" fill={ann.color || "var(--text-normal)"} /></>
 										) : (
-											<>
-												<circle cx="-3.5" cy="0" r="2.5" fill={ann.color || "var(--text-normal)"} />
-												<circle cx="3.5" cy="0" r="2.5" fill={ann.color || "var(--text-normal)"} />
-											</>
-										)}
-										{isSelected && activeTool === 'select' && (
-											<rect x="8" y="8" width="6" height="6" fill="var(--color-blue, #2080f0)" cursor="se-resize" onPointerDown={(e) => { e.stopPropagation(); setDragItemType('resize'); setDragNodeId(ann.id); }} />
+											<><circle cx="-3.5" cy="0" r="2.5" fill={ann.color || "var(--text-normal)"} /><circle cx="3.5" cy="0" r="2.5" fill={ann.color || "var(--text-normal)"} /></>
 										)}
 									</g>
 								);
@@ -749,40 +743,29 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 									<g key={ann.id} transform={`translate(${ann.x}, ${ann.y}) scale(${ann.scale || 1})`} onPointerDown={(e) => handlePointerDownAnnotation(e, ann.id)} style={{ cursor: activeTool === 'select' && !readOnly ? 'move' : 'default' }}>
 										{isSelected && <rect x="-10" y="-10" width="20" height="20" fill="transparent" stroke="var(--color-red, #f02020)" strokeDasharray="2" />}
 										<text textAnchor="middle" dominantBaseline="central" fill={ann.color || "var(--text-normal)"} fontWeight="bold" fontSize="16px" style={{ userSelect: 'none' }}>{ann.value}</text>
-										{isSelected && activeTool === 'select' && (
-											<rect x="8" y="8" width="6" height="6" fill="var(--color-blue, #2080f0)" cursor="se-resize" onPointerDown={(e) => { e.stopPropagation(); setDragItemType('resize'); setDragNodeId(ann.id); }} />
-										)}
 									</g>
 								);
 							} else if (ann.type === 'curly_arrow' && ann.points && ann.points.length >= 2) {
 								const pts: any = ann.points;
 								const c = ann.control || getInitialControlPoint(pts[0], pts[1]);
-
 								return (
 									<g key={ann.id}>
-										<path 
-											d={`M ${pts[0].x} ${pts[0].y} Q ${c.x} ${c.y} ${pts[1].x} ${pts[1].y}`} 
-											fill="none" stroke={strokeColor} strokeWidth={isSelected ? "3" : "2"} 
-											markerEnd={isSelected ? "url(#curlyhead-selected)" : (ann.color ? "url(#curlyhead-color)" : "url(#curlyhead)")} 
-											onPointerDown={(e) => handlePointerDownAnnotation(e, ann.id)} 
+										<path
+											d={`M ${pts[0].x} ${pts[0].y} Q ${c.x} ${c.y} ${pts[1].x} ${pts[1].y}`}
+											fill="none" stroke={strokeColor} strokeWidth={isSelected ? "3" : "2"}
+											markerEnd={isSelected ? "url(#curlyhead-selected)" : (ann.color ? "url(#curlyhead-color)" : "url(#curlyhead)")}
+											onPointerDown={(e) => handlePointerDownAnnotation(e, ann.id)}
 											style={{ cursor: activeTool === 'select' && !readOnly ? 'move' : 'default', pointerEvents: 'stroke' }}
 										/>
 										{isSelected && activeTool === 'select' && (
 											<>
 												<line x1={pts[0].x} y1={pts[0].y} x2={c.x} y2={c.y} stroke="var(--text-muted)" strokeDasharray="2 2" />
 												<line x1={pts[1].x} y1={pts[1].y} x2={c.x} y2={c.y} stroke="var(--text-muted)" strokeDasharray="2 2" />
-												<circle 
-													cx={c.x} cy={c.y} r="6" fill="var(--color-blue, #2080f0)" cursor="move"
-													onPointerDown={(e) => handlePointerDownControl(e, ann.id)}
-												/>
-												<circle 
-													cx={pts[0].x} cy={pts[0].y} r="5" fill="var(--color-green, #20f080)" cursor="move"
-													onPointerDown={(e) => { e.stopPropagation(); setSelectedIds([ann.id]); setDragNodeId(ann.id); setDragItemType('arrow_start'); }}
-												/>
-												<circle 
-													cx={pts[1].x} cy={pts[1].y} r="5" fill="var(--color-green, #20f080)" cursor="move"
-													onPointerDown={(e) => { e.stopPropagation(); setSelectedIds([ann.id]); setDragNodeId(ann.id); setDragItemType('arrow_end'); }}
-												/>
+												<circle cx={c.x} cy={c.y} r="6" fill="var(--color-blue, #2080f0)" cursor="move" onPointerDown={(e) => handlePointerDownControl(e, ann.id)} />
+												<circle cx={pts[0].x} cy={pts[0].y} r="5" fill="var(--color-green, #20f080)" cursor="move"
+													onPointerDown={(e) => { e.stopPropagation(); setSelectedIds([ann.id]); setDragNodeId(ann.id); setDragItemType('arrow_start'); }} />
+												<circle cx={pts[1].x} cy={pts[1].y} r="5" fill="var(--color-green, #20f080)" cursor="move"
+													onPointerDown={(e) => { e.stopPropagation(); setSelectedIds([ann.id]); setDragNodeId(ann.id); setDragItemType('arrow_end'); }} />
 											</>
 										)}
 									</g>

@@ -23,14 +23,20 @@ Switch between different drawing philosophies depending on your needs:
 - **Text Tool**: Add arbitrary labels and notes using the same cohesive font as chemical elements.
 
 ### 3. Deep Obsidian Integration
-- **Live Embeds**: Drawings are saved as `.chem` files and can be embedded in any markdown note using a simple code block:
+- **Live Embeds**: Drawings are saved as `.chem` files and can be embedded in any markdown note using the `chem` code block:
+  
   ```chem
-  [[MyDrawing.chem]]
+  file: CCC.chem
   ```
-- **Dynamic Resizing**: Resize your chemical drawings directly in your notes by specifying width and height:
+
+- **Dynamic Resizing**: You can specify the size and aspect ratio directly in the code block. `width` can use `%` or `px`, and `height` can use `px` or `auto`.
+
   ```chem
-  [[MyDrawing.chem|width=300&height=225]]
+  [[test.chem]]
+  width: 50%
+  height: 200px
   ```
+
 - **High-Quality Export**: Export your drawings as SVG or PNG directly from the command palette. Exports are sanitized for high contrast, ensuring bonds and arrows are perfectly visible on any background.
 
 ## Documentation

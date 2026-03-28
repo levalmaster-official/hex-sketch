@@ -74,11 +74,13 @@ export default class MyPlugin extends Plugin {
 			let width = "100%";
 			let height = undefined as string | undefined;
 
-			const lines = source.split('\n');
-			if (lines.length > 0 && lines[0]) {
-				const firstLine = lines[0].trim();
-				if (firstLine.startsWith("file:") || firstLine.startsWith("[[") || firstLine.match(/[\w\-\s]+\.chem/)) {
-					let fileLink = firstLine.replace(/^file:\s*/, '').replace('[[', '').replace(']]', '').trim();
+			const lines = source.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+			if (lines.length > 0) {
+				const firstLine = lines[0]!;
+				const isFileRef = firstLine.startsWith("file:") || firstLine.startsWith("[[") || firstLine.endsWith(".chem");
+				
+				if (isFileRef) {
+					let fileLink = firstLine.replace(/^file:\s*/, '').replace(/^\[\[/, '').replace(/\]\]$/, '').trim();
 					if (!fileLink.endsWith('.chem')) fileLink += '.chem';
 					
 					const file = this.app.metadataCache.getFirstLinkpathDest(fileLink, ctx.sourcePath) || this.app.vault.getAbstractFileByPath(fileLink);
@@ -88,18 +90,14 @@ export default class MyPlugin extends Plugin {
 						data = "{}";
 						el.createEl('div', { text: `Error: File ${fileLink} not found.`, cls: 'error-notice' });
 					}
-				}
-
-				for (let i = 1; i < lines.length; i++) {
-					if (!lines[i]) continue;
-					const line = lines[i]!.toLowerCase().trim();
-					if (line.startsWith('width:')) {
-						const val = line.split(':')[1];
-						if (val) width = val.trim();
-					}
-					if (line.startsWith('height:')) {
-						const val = line.split(':')[1];
-						if (val) height = val.trim();
+					
+					for (let i = 1; i < lines.length; i++) {
+						const line = lines[i]!.toLowerCase();
+						if (line.startsWith('width:')) {
+							width = line.split(':')[1]?.trim() || width;
+						} else if (line.startsWith('height:')) {
+							height = line.split(':')[1]?.trim() || height;
+						}
 					}
 				}
 			}

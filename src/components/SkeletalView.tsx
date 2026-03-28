@@ -688,10 +688,11 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 									style={{ cursor: activeTool === 'select' && !readOnly ? 'move' : 'default' }}>
 									{/* Opaque background rect to fully erase bond behind label (fixes O letter hole) */}
 									{(() => {
-										const w = Math.max(14, (el.text || '').length * 9 + 4);
-										const dx2 = el.align === 'start' ? -6 : el.align === 'end' ? 6 : 0;
-										const rx = el.align === 'start' ? -w + dx2 + (w/2 - 2) : el.align === 'end' ? dx2 - (w/2 - 2) : -w/2;
-										return <rect x={rx} y={-9} width={w} height={18} fill="var(--background-primary)" rx="1" />;
+										const w = Math.max(16, (el.text || '').length * 10 + 4);
+										let rx = -w / 2;
+										if (el.align === 'start') rx = -w + 4;
+										else if (el.align === 'end') rx = -4;
+										return <rect x={rx} y={-10} width={w} height={20} fill="var(--background-primary)" rx="2" />;
 									})()}
 									<text textAnchor={el.align || "middle"} dx={el.align === 'start' ? -6 : el.align === 'end' ? 6 : 0}
 										dominantBaseline="central" fill={el.color || "var(--text-normal)"}

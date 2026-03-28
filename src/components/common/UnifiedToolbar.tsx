@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Tool, DrawingMode } from './chemistryTypes';
+import { Tool, DrawingMode } from '../chemistryTypes';
 
-interface ThreeDToolbarProps {
+interface UnifiedToolbarProps {
 	mode: DrawingMode;
 	setMode: (mode: DrawingMode) => void;
 	activeTool: Tool;
@@ -11,7 +11,6 @@ interface ThreeDToolbarProps {
 	selectedIds: string[];
 	handleDelete: () => void;
 	newElementText: string;
-	setNewElementText: (text: string) => void;
 	handleTextChange: (text: string) => void;
 	showEditInput: boolean;
 	groupAlign: 'start' | 'middle' | 'end';
@@ -23,7 +22,7 @@ interface ThreeDToolbarProps {
 
 const PRESET_COLORS = ['', '#f02020', '#2080f0', '#20f080', '#f0a020', '#a020f0'];
 
-export const ThreeDToolbar: React.FC<ThreeDToolbarProps> = (props) => {
+export const UnifiedToolbar: React.FC<UnifiedToolbarProps> = (props) => {
 	const [favColors, setFavColors] = useState<string[]>(PRESET_COLORS);
 
 	useEffect(() => {
@@ -33,11 +32,11 @@ export const ThreeDToolbar: React.FC<ThreeDToolbarProps> = (props) => {
 				const parsed = JSON.parse(stored);
 				if (Array.isArray(parsed) && parsed.length > 0) setFavColors(parsed);
 			}
-		} catch { }
+		} catch {}
 	}, []);
 
 	const addFavColor = (color: string) => {
-		if (!favColors.includes(color)) {
+		if (color && !favColors.includes(color)) {
 			const newFavs = [...favColors, color];
 			setFavColors(newFavs);
 			localStorage.setItem('hexsketch-fav-colors', JSON.stringify(newFavs));
@@ -64,8 +63,8 @@ export const ThreeDToolbar: React.FC<ThreeDToolbarProps> = (props) => {
 		>{label}</button>
 	);
 
-	const showTextInput = props.activeTool === 'element' || props.activeTool === 'group' || props.activeTool === 'text' || props.showEditInput;
-	const showAlignSelect = props.activeTool === 'group' || props.showEditInput;
+	const isTextInputVisible = ['element', 'group', 'text', 'heteroatom'].includes(props.activeTool) || props.showEditInput;
+	const isAlignSelectVisible = ['group', 'heteroatom'].includes(props.activeTool) || props.showEditInput;
 
 	return (
 		<div style={{ display: 'flex', flexDirection: 'column', borderBottom: '1px solid var(--background-modifier-border)', padding: '8px', gap: '8px' }}>
@@ -76,9 +75,8 @@ export const ThreeDToolbar: React.FC<ThreeDToolbarProps> = (props) => {
 				{modeBtn('3d', '3D')}
 			</div>
 
-			<div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center' }}>
-
-				{/* Group 1: Select / Pan / Undo */}
+			<div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', alignItems: 'center' }}>
+				{/* History & Select */}
 				<div style={{ display: 'flex', gap: '4px', background: 'var(--background-secondary)', padding: '6px', borderRadius: '6px', alignItems: 'center' }}>
 					<button onClick={props.handleUndo} disabled={!props.canUndo}>Undo</button>
 					<div style={{ width: '1px', background: 'var(--background-modifier-border)', height: '20px', margin: '0 4px' }} />
@@ -89,70 +87,100 @@ export const ThreeDToolbar: React.FC<ThreeDToolbarProps> = (props) => {
 					)}
 				</div>
 
-				{/* Group 2: Element & Label placement */}
+				{/* Elements / Heteroatoms */}
 				<div style={{ display: 'flex', gap: '4px', background: 'var(--background-secondary)', padding: '6px', borderRadius: '6px', alignItems: 'center' }}>
-					{toolBtn('element', 'Element', 'Click to place element')}
-					{toolBtn('group', 'Group', 'Group with alignment (OH, HO)')}
-					{toolBtn('text', 'Text', 'Free text label')}
-
-					{showTextInput && (
-						<input
-							type="text"
-							value={props.newElementText}
-							onChange={e => props.handleTextChange(e.target.value)}
-							style={{ width: '70px' }}
-							placeholder="C, CH3, COOH..."
-						/>
+					{props.mode === 'skeletal' ? 
+						toolBtn('heteroatom', 'Heteroatom', 'Place an element on a vertex') : 
+						<>
+							{toolBtn('element', 'Element')}
+							{toolBtn('group', 'Group')}
+						</>
+					}
+					{toolBtn('text', 'Text')}
+					
+					{isTextInputVisible && (
+						<input type="text" value={props.newElementText} onChange={e => props.handleTextChange(e.target.value)} style={{ width: '60px' }} />
 					)}
-
-					{showAlignSelect && (
+					
+					{isAlignSelectVisible && (
 						<select value={props.groupAlign} onChange={e => props.setGroupAlign(e.target.value as any)}>
-							<option value="middle">Centered</option>
-							<option value="start">Bind Left (OH)</option>
-							<option value="end">Bind Right (HO)</option>
+							<option value="middle">Center</option>
+							<option value="start">{props.mode === 'displayed' ? 'Bind Left (OH)' : 'Left'}</option>
+							<option value="end">{props.mode === 'displayed' ? 'Bind Right (HO)' : 'Right'}</option>
 						</select>
 					)}
 				</div>
 
-				{/* Group 3: Bonds */}
+				{/* Bonds */}
 				<div style={{ display: 'flex', gap: '4px', background: 'var(--background-secondary)', padding: '6px', borderRadius: '6px', alignItems: 'center' }}>
-					{toolBtn('bond_single', 'Single', 'Single bond — drag between atoms')}
-					{toolBtn('bond_double', 'Double', 'Double bond')}
-					{toolBtn('bond_triple', 'Triple', 'Triple bond')}
-					<div style={{ width: '1px', background: 'var(--background-modifier-border)', height: '20px', margin: '0 4px' }} />
-					{toolBtn('bond_wedge', '▲ Wedge', 'Solid wedge — bond coming toward viewer (narrow end at source)')}
-					{toolBtn('bond_dash', '▽ Dash', 'Dashed wedge — bond going away from viewer')}
-					<div style={{ width: '1px', background: 'var(--background-modifier-border)', height: '20px', margin: '0 4px' }} />
-					{toolBtn('bond_dotted', 'Dotted', 'Dotted bond')}
+					{props.mode === 'skeletal' ? (
+						<>
+							{toolBtn('bond_single', 'Chain', 'Skeletal Chain')}
+							{toolBtn('bond_double_skeletal', 'C=C', 'Internal Double Bond')}
+							{toolBtn('bond_triple_skeletal', 'C#C', 'Internal Triple Bond')}
+							{toolBtn('benzene', 'Benzene', 'Benzene Ring')}
+						</>
+					) : (
+						<>
+							{toolBtn('bond_single', 'Single')}
+							{toolBtn('bond_double', 'Double')}
+							{toolBtn('bond_triple', 'Triple')}
+							{toolBtn('bond_dotted', 'Dotted')}
+						</>
+					)}
+					{props.mode === '3d' && (
+						<>
+							{toolBtn('bond_wedge', '▲ Wedge')}
+							{toolBtn('bond_dash', '▽ Dash')}
+						</>
+					)}
 				</div>
 
-				{/* Group 4: Annotations */}
+				{props.mode === 'skeletal' && (
+					<div style={{ display: 'flex', gap: '4px', background: 'var(--background-secondary)', padding: '6px', borderRadius: '6px', alignItems: 'center' }}>
+						{toolBtn('bond_double', 'Double', 'Generic Double Bond')}
+						{toolBtn('bond_triple', 'Triple', 'Generic Triple Bond')}
+						{toolBtn('bond_dotted', 'Dotted', 'Dotted Bond')}
+					</div>
+				)}
+
+				{/* Annotations */}
 				<div style={{ display: 'flex', gap: '4px', background: 'var(--background-secondary)', padding: '6px', borderRadius: '6px', alignItems: 'center' }}>
-					{toolBtn('charge_plus', '+', 'Add + charge')}
-					{toolBtn('charge_minus', '−', 'Add − charge')}
-					{toolBtn('delta_plus', 'δ+', 'Delta plus')}
-					{toolBtn('delta_minus', 'δ−', 'Delta minus')}
-					<div style={{ width: '1px', background: 'var(--background-modifier-border)', height: '20px', margin: '0 4px' }} />
-					{toolBtn('mirror_line', '⟊ Mirror', 'Draw a dashed mirror/symmetry line')}
+					{toolBtn('charge_plus', '+')}
+					{toolBtn('charge_minus', '−')}
+					{toolBtn('delta_plus', 'δ⁺')}
+					{toolBtn('delta_minus', 'δ⁻')}
+					{props.mode !== '3d' && (
+						<>
+							{toolBtn('electron_pair_v', ':')}
+							{toolBtn('electron_pair_h', '..')}
+						</>
+					)}
+					{toolBtn('curly_arrow', 'Curly arrow')}
+					{props.mode === '3d' && toolBtn('mirror_line', '⟊ Mirror')}
+					{props.mode === 'skeletal' && (
+						<>
+							{toolBtn('bracket_left', '[')}
+							{toolBtn('bracket_right', ']')}
+						</>
+					)}
 				</div>
 
-				{/* Group 5: Reactions */}
+				{/* Reaction */}
 				<div style={{ display: 'flex', gap: '4px', background: 'var(--background-secondary)', padding: '6px', borderRadius: '6px', alignItems: 'center' }}>
-					{toolBtn('reaction_plus', '+ (React)', 'Reaction Plus')}
-					{toolBtn('reaction_arrow', '→', 'Reaction Arrow')}
-					{toolBtn('reaction_reversible', '⇌', 'Reversible Reaction Arrow')}
+					{toolBtn('reaction_arrow', '→')}
+					{toolBtn('reaction_reversible', '⇌')}
 				</div>
 
-				{/* Group 6: Color */}
+				{/* Color */}
 				<div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'var(--background-secondary)', padding: '6px', borderRadius: '6px' }}>
 					<input
 						type="color"
 						value={props.currentColor || '#aaaaaa'}
 						onChange={e => props.setCurrentColor(e.target.value)}
 						style={{ width: '28px', height: '28px', padding: 0, border: 'none', background: 'transparent', cursor: 'pointer' }}
-						title="Choose custom color"
 					/>
-					<button onClick={() => addFavColor(props.currentColor)} title="Save" style={{ padding: '4px 8px' }}>+</button>
+					<button onClick={() => addFavColor(props.currentColor)} style={{ padding: '4px 8px' }}>+</button>
 					<div style={{ display: 'flex', gap: '4px' }}>
 						{favColors.map(c => (
 							<div
@@ -163,12 +191,11 @@ export const ThreeDToolbar: React.FC<ThreeDToolbarProps> = (props) => {
 									cursor: 'pointer', borderRadius: '50%',
 									boxShadow: props.currentColor === c ? '0 0 0 2px var(--color-blue, #2080f0)' : '0 0 0 1px var(--background-modifier-border)'
 								}}
-								title={c === '' ? 'Theme Default' : c}
+								title={c === '' ? 'Default' : c}
 							/>
 						))}
 					</div>
 				</div>
-
 			</div>
 		</div>
 	);

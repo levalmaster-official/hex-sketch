@@ -44,14 +44,14 @@ export class ChemFileView extends TextFileView {
 		if (this.root) {
 			this.root.render(
 				<div style={{ width: '100%', height: '100%' }}>
-					<ChemistryCanvas 
-						initialData={this.data} 
+					<ChemistryCanvas
+						initialData={this.data}
 						onChange={(newData) => {
 							if (this.data !== newData) {
 								this.data = newData;
 								this.requestSave();
 							}
-						}} 
+						}}
 					/>
 				</div>
 			);

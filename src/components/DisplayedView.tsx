@@ -1,30 +1,31 @@
 import React, { useState, useRef, useEffect, useCallback, MouseEvent as ReactMouseEvent } from 'react';
 import { ElementNode, Bond, BondType, Annotation, AnnotationType, Tool, HistoryState, DrawingMode } from './chemistryTypes';
 import { ChemistryToolbar } from './ChemistryToolbar';
+import { BondRenderer } from './common/ChemPrimitives';
 
 const generateId = () => Math.random().toString(36).substring(2, 9);
 const snapToGrid = (val: number, gridSize: number = 20) => Math.round(val / gridSize) * gridSize;
 
-const getInitialControlPoint = (start: {x: number, y: number}, end: {x: number, y: number}) => {
+const getInitialControlPoint = (start: { x: number, y: number }, end: { x: number, y: number }) => {
 	const dx = end.x - start.x;
 	const dy = end.y - start.y;
-	const len = Math.sqrt(dx*dx + dy*dy);
-	if(len === 0) return {x: start.x, y: start.y};
-	const nx = -dy/len;
-	const ny = dx/len;
-	const offset = Math.min(len/2, 40);
+	const len = Math.sqrt(dx * dx + dy * dy);
+	if (len === 0) return { x: start.x, y: start.y };
+	const nx = -dy / len;
+	const ny = dx / len;
+	const offset = Math.min(len / 2, 40);
 	return {
-		x: start.x + dx/2 + nx * offset,
-		y: start.y + dy/2 + ny * offset,
+		x: start.x + dx / 2 + nx * offset,
+		y: start.y + dy / 2 + ny * offset,
 	};
 };
 
-export const DisplayedView: React.FC<{initialData?: string, onChange?: (data: string) => void, readOnly?: boolean, mode: DrawingMode, setMode: (m: DrawingMode) => void, isBlank?: boolean}> = ({initialData, onChange, readOnly, mode, setMode, isBlank}) => {
+export const DisplayedView: React.FC<{ initialData?: string, onChange?: (data: string) => void, readOnly?: boolean, mode: DrawingMode, setMode: (m: DrawingMode) => void, isBlank?: boolean }> = ({ initialData, onChange, readOnly, mode, setMode, isBlank }) => {
 	const [elements, setElements] = useState<ElementNode[]>([]);
 	const [bonds, setBonds] = useState<Bond[]>([]);
 	const [annotations, setAnnotations] = useState<Annotation[]>([]);
 	const [history, setHistory] = useState<HistoryState[]>([]);
-	
+
 	const renderChemText = (text: string, color: string, fontSize: string, align: 'start' | 'middle' | 'end' = 'middle', dx = 0) => {
 		const segments: { text: string; type: 'normal' | 'sub' | 'super' }[] = [];
 		let current = "";
@@ -62,28 +63,28 @@ export const DisplayedView: React.FC<{initialData?: string, onChange?: (data: st
 			</text>
 		);
 	};
-	
+
 	const [activeTool, setActiveTool] = useState<Tool>('select');
 	const [newElementText, setNewElementText] = useState('C');
 	const [groupAlign, setGroupAlign] = useState<'start' | 'middle' | 'end'>('start');
 	const [selectedIds, setSelectedIds] = useState<string[]>([]);
 	const [currentColor, setCurrentColor] = useState<string>('');
-	
+
 	const [scale, setScale] = useState(1);
-	const [pan, setPan] = useState({x: 0, y: 0});
-	
+	const [pan, setPan] = useState({ x: 0, y: 0 });
+
 	const svgRef = useRef<SVGSVGElement>(null);
 	const containerRef = useRef<HTMLDivElement>(null);
-	
+
 	const [dragNodeId, setDragNodeId] = useState<string | null>(null);
 	const [dragItemType, setDragItemType] = useState<'annotation' | 'control' | 'arrow_start' | 'arrow_end' | 'pan' | 'resize' | 'multi_drag' | null>(null);
-	const [dragStartPos, setDragStartPos] = useState({x: 0, y: 0});
-	const [dragInitialState, setDragInitialState] = useState<{elements: ElementNode[], annotations: Annotation[]} | null>(null);
-	const [selectionBox, setSelectionBox] = useState<{start: {x:number, y:number}, current: {x:number, y:number}} | null>(null);
-	
+	const [dragStartPos, setDragStartPos] = useState({ x: 0, y: 0 });
+	const [dragInitialState, setDragInitialState] = useState<{ elements: ElementNode[], annotations: Annotation[] } | null>(null);
+	const [selectionBox, setSelectionBox] = useState<{ start: { x: number, y: number }, current: { x: number, y: number } } | null>(null);
+
 	const [drawingBondFrom, setDrawingBondFrom] = useState<string | null>(null);
 	const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
-	const [drawingArrow, setDrawingArrow] = useState<{ start: {x: number, y: number}, current: {x: number, y: number} } | null>(null);
+	const [drawingArrow, setDrawingArrow] = useState<{ start: { x: number, y: number }, current: { x: number, y: number } } | null>(null);
 
 	const prevInitialData = useRef<string | undefined>(undefined);
 
@@ -98,7 +99,7 @@ export const DisplayedView: React.FC<{initialData?: string, onChange?: (data: st
 				setBonds(d.bonds || []);
 				setAnnotations(d.annotations || []);
 				if (d.mode) setMode(d.mode);
-				
+
 				if (readOnly && d.elements && d.elements.length > 0) {
 					const xs = d.elements.map((e: any) => e.x);
 					const ys = d.elements.map((e: any) => e.y);
@@ -106,9 +107,9 @@ export const DisplayedView: React.FC<{initialData?: string, onChange?: (data: st
 					const maxX = Math.max(...xs);
 					const minY = Math.min(...ys);
 					const maxY = Math.max(...ys);
-					setPan({x: -(minX + maxX)/2 + 150, y: -(minY + maxY)/2 + 150});
+					setPan({ x: -(minX + maxX) / 2 + 150, y: -(minY + maxY) / 2 + 150 });
 				}
-			} catch(e) {}
+			} catch (e) { }
 			setTimeout(() => { isLoaded.current = true; }, 0);
 		} else if (!initialData) {
 			isLoaded.current = true;
@@ -160,7 +161,7 @@ export const DisplayedView: React.FC<{initialData?: string, onChange?: (data: st
 			if (e.target instanceof HTMLInputElement) {
 				if (e.key === 'Delete' || e.key === 'Backspace') return;
 			}
-			
+
 			if (e.key === 'Delete' || e.key === 'Backspace') {
 				handleDelete();
 			}
@@ -193,6 +194,7 @@ export const DisplayedView: React.FC<{initialData?: string, onChange?: (data: st
 		if (selectedIds.length > 0) {
 			pushHistory();
 			setElements(elements.map(e => selectedIds.includes(e.id) ? { ...e, color: newColor } : e));
+			setBonds(bonds.map(b => selectedIds.includes(b.id) ? { ...b, color: newColor } : b));
 			setAnnotations(annotations.map(a => selectedIds.includes(a.id) ? { ...a, color: newColor } : a));
 		}
 	};
@@ -207,26 +209,26 @@ export const DisplayedView: React.FC<{initialData?: string, onChange?: (data: st
 	};
 
 	const handleWheel = (e: React.WheelEvent) => {
-		if (e.ctrlKey || e.metaKey || e.shiftKey) { 
+		if (e.ctrlKey || e.metaKey || e.shiftKey) {
 			const zoomDir = e.deltaY > 0 ? 0.9 : 1.1;
 			const newScale = Math.min(Math.max(0.1, scale * zoomDir), 5);
-			
+
 			if (svgRef.current) {
 				const rect = svgRef.current.getBoundingClientRect();
 				const rawX = e.clientX - rect.left;
 				const rawY = e.clientY - rect.top;
-				
+
 				const newPanX = rawX - (rawX - pan.x) * (newScale / scale);
 				const newPanY = rawY - (rawY - pan.y) * (newScale / scale);
-				
+
 				setScale(newScale);
-				setPan({x: newPanX, y: newPanY});
+				setPan({ x: newPanX, y: newPanY });
 			}
 		} else {
-			setPan({x: pan.x - e.deltaX, y: pan.y - e.deltaY});
+			setPan({ x: pan.x - e.deltaX, y: pan.y - e.deltaY });
 		}
 	};
-	
+
 	useEffect(() => {
 		const el = containerRef.current;
 		const preventZoom = (e: WheelEvent) => {
@@ -261,7 +263,7 @@ export const DisplayedView: React.FC<{initialData?: string, onChange?: (data: st
 			setAnnotations([...annotations, { id: generateId(), type: 'charge', x: coords.x, y: coords.y, value: activeTool === 'charge_plus' ? '+' : '-', color: currentColor }]);
 		} else if (activeTool === 'delta_plus' || activeTool === 'delta_minus') {
 			pushHistory();
-			setAnnotations([...annotations, { id: generateId(), type: 'delta_charge', x: coords.x, y: coords.y, value: activeTool === 'delta_plus' ? 'δ+' : 'δ-', color: currentColor }]);
+			setAnnotations([...annotations, { id: generateId(), type: 'delta_charge', x: coords.x, y: coords.y, value: activeTool === 'delta_plus' ? 'δ^+' : 'δ^-', color: currentColor }]);
 		} else if (activeTool === 'electron_pair_v') {
 			pushHistory();
 			setAnnotations([...annotations, { id: generateId(), type: 'electron_pair', x: coords.x, y: coords.y, vertical: true, color: currentColor }]);
@@ -341,6 +343,9 @@ export const DisplayedView: React.FC<{initialData?: string, onChange?: (data: st
 		if (activeTool === 'select') {
 			if (!e.shiftKey) setSelectedIds([id]);
 			else if (!selectedIds.includes(id)) setSelectedIds([...selectedIds, id]);
+		} else if (activeTool.startsWith('bond_')) {
+			pushHistory();
+			setBonds(bonds.map(b => b.id === id ? { ...b, type: activeTool.replace('bond_', '') as BondType, color: currentColor || undefined } : b));
 		}
 	};
 
@@ -349,7 +354,7 @@ export const DisplayedView: React.FC<{initialData?: string, onChange?: (data: st
 			setDragItemType('pan'); return;
 		}
 		if (readOnly) return;
-		
+
 		const coords = getMouseCoords(e);
 		if (activeTool === 'curly_arrow') {
 			setDrawingArrow({ start: coords, current: coords });
@@ -398,26 +403,26 @@ export const DisplayedView: React.FC<{initialData?: string, onChange?: (data: st
 			} else if (dragItemType === 'control') {
 				setAnnotations(annotations.map(a => a.id === dragNodeId ? { ...a, control: { x: coords.x, y: coords.y } } : a));
 			} else if (dragItemType === 'arrow_start') {
-				setAnnotations(annotations.map(a => a.id === dragNodeId && a.points ? { ...a, points: [{x: coords.x, y: coords.y}, a.points[1]!] } : a));
+				setAnnotations(annotations.map(a => a.id === dragNodeId && a.points ? { ...a, points: [{ x: coords.x, y: coords.y }, a.points[1]!] } : a));
 			} else if (dragItemType === 'arrow_end') {
-				setAnnotations(annotations.map(a => a.id === dragNodeId && a.points ? { ...a, points: [a.points[0]!, {x: coords.x, y: coords.y}] } : a));
+				setAnnotations(annotations.map(a => a.id === dragNodeId && a.points ? { ...a, points: [a.points[0]!, { x: coords.x, y: coords.y }] } : a));
 			} else if (dragItemType === 'resize') {
 				const el = elements.find(e => e.id === dragNodeId);
 				if (el) {
 					const dx = coords.x - el.x; const dy = coords.y - el.y;
-					const dist = Math.sqrt(dx*dx + dy*dy);
+					const dist = Math.sqrt(dx * dx + dy * dy);
 					setElements(elements.map(e => e.id === dragNodeId ? { ...e, scale: Math.max(0.5, dist / 11) } : e));
 				} else {
 					const ann = annotations.find(a => a.id === dragNodeId);
 					if (ann) {
 						if (ann.points) {
 							const dx = coords.x - ann.points[0]!.x; const dy = coords.y - ann.points[0]!.y;
-							const dist = Math.sqrt(dx*dx + dy*dy);
-							const origLen = Math.sqrt((ann.points[1]!.x - ann.points[0]!.x)**2 + (ann.points[1]!.y - ann.points[0]!.y)**2);
+							const dist = Math.sqrt(dx * dx + dy * dy);
+							const origLen = Math.sqrt((ann.points[1]!.x - ann.points[0]!.x) ** 2 + (ann.points[1]!.y - ann.points[0]!.y) ** 2);
 							setAnnotations(annotations.map(a => a.id === dragNodeId ? { ...a, scale: Math.max(0.3, dist / (origLen || 20)) } : a));
 						} else {
 							const dx = coords.x - ann.x; const dy = coords.y - ann.y;
-							const dist = Math.sqrt(dx*dx + dy*dy);
+							const dist = Math.sqrt(dx * dx + dy * dy);
 							setAnnotations(annotations.map(a => a.id === dragNodeId ? { ...a, scale: Math.max(0.5, dist / 11) } : a));
 						}
 					}
@@ -426,7 +431,16 @@ export const DisplayedView: React.FC<{initialData?: string, onChange?: (data: st
 		}
 
 		if (drawingArrow) {
-			setDrawingArrow({ ...drawingArrow, current: coords });
+			const dx = coords.x - drawingArrow.start.x;
+			const dy = coords.y - drawingArrow.start.y;
+			let current = coords;
+			if (activeTool !== 'curly_arrow') {
+				if (Math.abs(dx) > Math.abs(dy)) current = { x: snapToGrid(coords.x), y: drawingArrow.start.y };
+				else current = { x: drawingArrow.start.x, y: snapToGrid(coords.y) };
+			} else {
+				current = { x: snapToGrid(coords.x), y: snapToGrid(coords.y) };
+			}
+			setDrawingArrow({ ...drawingArrow, current });
 		}
 	};
 
@@ -437,13 +451,13 @@ export const DisplayedView: React.FC<{initialData?: string, onChange?: (data: st
 		if (readOnly) return;
 		if (dragNodeId) pushHistory();
 		if (drawingBondFrom) setDrawingBondFrom(null);
-		
+
 		if (selectionBox) {
 			const minX = Math.min(selectionBox.start.x, selectionBox.current.x);
 			const maxX = Math.max(selectionBox.start.x, selectionBox.current.x);
 			const minY = Math.min(selectionBox.start.y, selectionBox.current.y);
 			const maxY = Math.max(selectionBox.start.y, selectionBox.current.y);
-			
+
 			const newSelected: string[] = [];
 			elements.forEach(e => {
 				if (e.x >= minX && e.x <= maxX && e.y >= minY && e.y <= maxY) newSelected.push(e.id);
@@ -473,10 +487,10 @@ export const DisplayedView: React.FC<{initialData?: string, onChange?: (data: st
 		if (drawingArrow) {
 			pushHistory();
 			const type = activeTool as AnnotationType;
-			setAnnotations([...annotations, { 
-				id: generateId(), 
+			setAnnotations([...annotations, {
+				id: generateId(),
 				type,
-				x: drawingArrow.start.x, 
+				x: drawingArrow.start.x,
 				y: drawingArrow.start.y,
 				points: [drawingArrow.start, drawingArrow.current],
 				control: getInitialControlPoint(drawingArrow.start, drawingArrow.current),
@@ -485,6 +499,9 @@ export const DisplayedView: React.FC<{initialData?: string, onChange?: (data: st
 			setDrawingArrow(null);
 			setActiveTool('select');
 		}
+		setDragNodeId(null);
+		setDragItemType(null);
+		setDragInitialState(null);
 	};
 
 	const renderBond = (bond: Bond) => {
@@ -494,7 +511,7 @@ export const DisplayedView: React.FC<{initialData?: string, onChange?: (data: st
 
 		const dx = toEl.x - fromEl.x;
 		const dy = toEl.y - fromEl.y;
-		const dist = Math.sqrt(dx*dx + dy*dy);
+		const dist = Math.sqrt(dx * dx + dy * dy);
 		const radius1 = 12 * (fromEl.scale || 1);
 		const radius2 = 12 * (toEl.scale || 1);
 
@@ -502,37 +519,20 @@ export const DisplayedView: React.FC<{initialData?: string, onChange?: (data: st
 		let endX = toEl.x; let endY = toEl.y;
 
 		if (dist > radius1 + radius2) {
-			startX = fromEl.x + (dx/dist) * radius1;
-			startY = fromEl.y + (dy/dist) * radius1;
-			endX = toEl.x - (dx/dist) * radius2;
-			endY = toEl.y - (dy/dist) * radius2;
+			startX = fromEl.x + (dx / dist) * radius1;
+			startY = fromEl.y + (dy / dist) * radius1;
+			endX = toEl.x - (dx / dist) * radius2;
+			endY = toEl.y - (dy / dist) * radius2;
 		}
 
-		const ndx = endX - startX;
-		const ndy = endY - startY;
-		const angle = Math.atan2(ndy, ndx);
-		const offsetX = Math.sin(angle) * 4;
-		const offsetY = Math.cos(angle) * 4;
-
-		let paths = [];
 		const isSelected = selectedIds.includes(bond.id);
-		const strokeColor = isSelected && !readOnly ? "var(--color-red, #f02020)" : "var(--text-normal)";
-
-		if (bond.type === 'single' || bond.type === 'dotted') {
-			paths.push(<line key="mid" x1={startX} y1={startY} x2={endX} y2={endY} stroke={strokeColor} strokeWidth={isSelected ? "3" : "2"} strokeDasharray={bond.type === 'dotted' ? "4 4" : "none"} />);
-		} else if (bond.type === 'double') {
-			paths.push(<line key="offset1" x1={startX - offsetX} y1={startY + offsetY} x2={endX - offsetX} y2={endY + offsetY} stroke={strokeColor} strokeWidth={isSelected ? "3" : "2"} />);
-			paths.push(<line key="offset2" x1={startX + offsetX} y1={startY - offsetY} x2={endX + offsetX} y2={endY - offsetY} stroke={strokeColor} strokeWidth={isSelected ? "3" : "2"} />);
-		} else if (bond.type === 'triple') {
-			paths.push(<line key="mid" x1={startX} y1={startY} x2={endX} y2={endY} stroke={strokeColor} strokeWidth={isSelected ? "3" : "2"} />);
-			paths.push(<line key="offset1" x1={startX - offsetX*2} y1={startY + offsetY*2} x2={endX - offsetX*2} y2={endY + offsetY*2} stroke={strokeColor} strokeWidth={isSelected ? "3" : "2"} />);
-			paths.push(<line key="offset2" x1={startX + offsetX*2} y1={startY - offsetY*2} x2={endX + offsetX*2} y2={endY - offsetY*2} stroke={strokeColor} strokeWidth={isSelected ? "3" : "2"} />);
-		}
-
 		return (
 			<g key={bond.id} onPointerDown={(e) => handlePointerDownBond(e, bond.id)} style={{ cursor: activeTool === 'select' && !readOnly ? 'pointer' : 'default' }}>
-				{!readOnly && <line x1={startX} y1={startY} x2={endX} y2={endY} stroke="transparent" strokeWidth="15" />}
-				{paths}
+				<line x1={startX} y1={startY} x2={endX} y2={endY} stroke="transparent" strokeWidth="15" />
+				<BondRenderer
+					x1={startX} y1={startY} x2={endX} y2={endY}
+					type={bond.type} selected={isSelected} color={bond.color} readOnly={readOnly}
+				/>
 			</g>
 		);
 	};
@@ -557,17 +557,17 @@ export const DisplayedView: React.FC<{initialData?: string, onChange?: (data: st
 				tryInclude(a.control.x, a.control.y);
 			}
 		});
-		
+
 		if (minX !== Infinity) {
 			const pad = 10;
-			viewBoxFull = `${minX - pad} ${minY - pad} ${maxX - minX + pad*2} ${maxY - minY + pad*2}`;
+			viewBoxFull = `${minX - pad} ${minY - pad} ${maxX - minX + pad * 2} ${maxY - minY + pad * 2}`;
 		}
 	}
 
 	return (
 		<div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', height: '100%', width: '100%', minHeight: readOnly ? 'auto' : undefined }}>
 			{!readOnly && (
-				<ChemistryToolbar 
+				<ChemistryToolbar
 					mode={mode} setMode={setMode}
 					activeTool={activeTool} setActiveTool={setActiveTool}
 					handleUndo={handleUndo} canUndo={history.length > 0}
@@ -581,8 +581,8 @@ export const DisplayedView: React.FC<{initialData?: string, onChange?: (data: st
 			)}
 
 			<div style={{ flex: 1, position: 'relative', overflow: 'hidden', background: readOnly ? 'transparent' : 'var(--background-primary)' }}>
-				<svg 
-					ref={svgRef} 
+				<svg
+					ref={svgRef}
 					width={readOnly && viewBoxFull ? "100%" : "100%"}
 					height={readOnly && viewBoxFull ? "auto" : "100%"}
 					viewBox={viewBoxFull}
@@ -595,35 +595,40 @@ export const DisplayedView: React.FC<{initialData?: string, onChange?: (data: st
 				>
 					<defs>
 						<pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse" patternTransform={`translate(${pan.x}, ${pan.y}) scale(${scale})`}>
-							<path d="M 20 0 L 0 0 0 20" fill="none" stroke="var(--background-modifier-border)" strokeWidth={0.5 / scale}/>
+							<path d="M 20 0 L 0 0 0 20" fill="none" stroke="var(--background-modifier-border)" strokeWidth={0.5 / scale} />
 						</pattern>
-						<marker id="harpoon-top" markerWidth="6" markerHeight="4.5" refX="5" refY="2.25" orient="auto">
-							<path d="M 0 0 L 6 2.25 L 0 2.25 Z" fill="context-stroke" />
+						<marker id="harpoon-top" markerWidth="10" markerHeight="8" refX="10" refY="3" orient="auto" markerUnits="userSpaceOnUse">
+							<path d="M 0 0 L 10 4 L 0 4 Z" fill="context-stroke" />
 						</marker>
-						<marker id="harpoon-top-selected" markerWidth="6" markerHeight="4.5" refX="5" refY="2.25" orient="auto">
-							<path d="M 0 0 L 6 2.25 L 0 2.25 Z" fill="var(--color-red, #f02020)" />
+						<marker id="harpoon-top-selected" markerWidth="10" markerHeight="8" refX="10" refY="3" orient="auto" markerUnits="userSpaceOnUse">
+							<path d="M 0 0 L 10 4 L 0 4 Z" fill="var(--color-red, #f02020)" />
 						</marker>
-						<marker id="harpoon-bottom" markerWidth="6" markerHeight="4.5" refX="5" refY="2.25" orient="auto">
-							<path d="M 0 4.5 L 6 2.25 L 0 2.25 Z" fill="context-stroke" />
+						<marker id="harpoon-bottom" markerWidth="10" markerHeight="8" refX="10" refY="5" orient="auto" markerUnits="userSpaceOnUse">
+							<path d="M 0 8 L 10 4 L 0 4 Z" fill="context-stroke" />
 						</marker>
-						<marker id="curlyhead" markerWidth="6" markerHeight="4.5" refX="5" refY="2.25" orient="auto">
-							<polygon points="0 0, 6 2.25, 0 4.5" fill="var(--text-normal)" />
+						<marker id="arrowhead" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+							<polygon points="0 0, 10 4, 0 8" fill="context-stroke" />
 						</marker>
-						<marker id="curlyhead-selected" markerWidth="6" markerHeight="4.5" refX="5" refY="2.25" orient="auto">
-							<polygon points="0 0, 6 2.25, 0 4.5" fill="var(--color-red, #f02020)" />
+						<marker id="arrowhead-selected" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+							<polygon points="0 0, 10 4, 0 8" fill="var(--color-red, #f02020)" />
 						</marker>
-						<marker id="curlyhead-color" markerWidth="6" markerHeight="4.5" refX="5" refY="2.25" orient="auto" markerUnits="strokeWidth">
-							<polygon points="0 0, 6 2.25, 0 4.5" fill="context-stroke" />
+						<marker id="curlyhead" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+							<polygon points="0 0, 10 4, 0 8" fill="var(--text-normal)" />
+						</marker>
+						<marker id="curlyhead-selected" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+							<polygon points="0 0, 10 4, 0 8" fill="var(--color-red, #f02020)" />
+						</marker>
+						<marker id="curlyhead-color" markerWidth="10" markerHeight="8" refX="10" refY="4" orient="auto" markerUnits="userSpaceOnUse">
+							<polygon points="0 0, 10 4, 0 8" fill="context-stroke" />
 						</marker>
 					</defs>
-					
-					{!readOnly && <rect x="-10000" y="-10000" width="20000" height="20000" fill="url(#grid)" style={{ pointerEvents: 'all', cursor: activeTool === 'pan' ? 'grab' : 'crosshair' }} />}
 
+					{!readOnly && <rect x="-10000" y="-10000" width="20000" height="20000" fill="url(#grid)" style={{ cursor: activeTool === 'pan' ? 'grab' : 'crosshair' }} />}
 					<g transform={`translate(${readOnly ? 0 : pan.x}, ${readOnly ? 0 : pan.y}) scale(${readOnly ? 1 : scale})`}>
-						
+
 						{/* Selection Box overlay */}
 						{selectionBox && (
-							<rect 
+							<rect
 								x={Math.min(selectionBox.start.x, selectionBox.current.x)}
 								y={Math.min(selectionBox.start.y, selectionBox.current.y)}
 								width={Math.abs(selectionBox.current.x - selectionBox.start.x)}
@@ -642,30 +647,39 @@ export const DisplayedView: React.FC<{initialData?: string, onChange?: (data: st
 						})()}
 
 						{/* Reaction arrow previews */}
-						{drawingArrow && activeTool === 'reaction_arrow' && (
-							<line x1={drawingArrow.start.x} y1={drawingArrow.start.y} x2={drawingArrow.current.x} y2={drawingArrow.current.y}
-								stroke={currentColor || 'var(--text-normal)'} strokeWidth="2" strokeDasharray="4" markerEnd="url(#harpoon-top)" />
-						)}
+						{drawingArrow && activeTool === 'reaction_arrow' && (() => {
+							const dx = drawingArrow.current.x - drawingArrow.start.x; const dy = drawingArrow.current.y - drawingArrow.start.y;
+							const len = Math.sqrt(dx * dx + dy * dy) || 1;
+							const ghostX = drawingArrow.current.x - (dx / len) * 0.1; const ghostY = drawingArrow.current.y - (dy / len) * 0.1;
+							return <g>
+								<line x1={ghostX} y1={ghostY} x2={drawingArrow.current.x} y2={drawingArrow.current.y} stroke={currentColor || 'var(--text-normal)'} strokeWidth="1" markerEnd="url(#arrowhead)" />
+								<line x1={drawingArrow.start.x} y1={drawingArrow.start.y} x2={drawingArrow.current.x} y2={drawingArrow.current.y} stroke={currentColor || 'var(--text-normal)'} strokeWidth="1.5" strokeDasharray="4" />
+							</g>;
+						})()}
 						{drawingArrow && activeTool === 'reaction_reversible' && (() => {
 							const dx = drawingArrow.current.x - drawingArrow.start.x; const dy = drawingArrow.current.y - drawingArrow.start.y;
-							const len = Math.sqrt(dx*dx+dy*dy) || 1;
-							const nx = -dy/len*3; const ny = dx/len*3;
+							const len = Math.sqrt(dx * dx + dy * dy) || 1;
+							const nx = -dy / len * 3.5; const ny = dx / len * 3.5;
+							const g1_s = drawingArrow.current.x - (dx / len) * 0.1; const g1_y_s = drawingArrow.current.y - (dy / len) * 0.1;
+							const g2_s = drawingArrow.start.x + (dx / len) * 0.1; const g2_y_s = drawingArrow.start.y + (dy / len) * 0.1;
 							return <g>
-								<line x1={drawingArrow.start.x+nx} y1={drawingArrow.start.y+ny} x2={drawingArrow.current.x+nx} y2={drawingArrow.current.y+ny}
-									stroke={currentColor || 'var(--text-normal)'} strokeWidth="1.5" strokeDasharray="4" markerEnd="url(#harpoon-top)" />
-								<line x1={drawingArrow.current.x-nx} y1={drawingArrow.current.y-ny} x2={drawingArrow.start.x-nx} y2={drawingArrow.start.y-ny}
-									stroke={currentColor || 'var(--text-normal)'} strokeWidth="1.5" strokeDasharray="4" markerEnd="url(#harpoon-top)" />
+								<line x1={g1_s + nx} y1={g1_y_s + ny} x2={drawingArrow.current.x + nx} y2={drawingArrow.current.y + ny} stroke={currentColor || 'var(--text-normal)'} strokeWidth="1" markerEnd="url(#harpoon-top)" />
+								<line x1={drawingArrow.start.x + nx} y1={drawingArrow.start.y + ny} x2={drawingArrow.current.x + nx} y2={drawingArrow.current.y + ny} stroke={currentColor || 'var(--text-normal)'} strokeWidth="1.5" strokeDasharray="4" />
+								<line x1={g2_s - nx} y1={g2_y_s - ny} x2={drawingArrow.start.x - nx} y2={drawingArrow.start.y - ny} stroke={currentColor || 'var(--text-normal)'} strokeWidth="1" markerEnd="url(#harpoon-top)" />
+								<line x1={drawingArrow.current.x - nx} y1={drawingArrow.current.y - ny} x2={drawingArrow.start.x - nx} y2={drawingArrow.start.y - ny} stroke={currentColor || 'var(--text-normal)'} strokeWidth="1.5" strokeDasharray="4" />
 							</g>;
 						})()}
 
 						{/* Curly arrow preview */}
 						{drawingArrow && activeTool === 'curly_arrow' && (() => {
 							const c = getInitialControlPoint(drawingArrow.start, drawingArrow.current);
-							return <path 
-								d={`M ${drawingArrow.start.x} ${drawingArrow.start.y} Q ${c.x} ${c.y} ${drawingArrow.current.x} ${drawingArrow.current.y}`} 
-								fill="none" stroke={currentColor} strokeWidth="2" strokeDasharray="4"
-								markerEnd="url(#curlyhead)" 
-							/>;
+							const dx = drawingArrow.current.x - c.x; const dy = drawingArrow.current.y - c.y;
+							const len = Math.sqrt(dx * dx + dy * dy) || 1;
+							const gX = drawingArrow.current.x - (dx / len) * 0.1; const gY = drawingArrow.current.y - (dy / len) * 0.1;
+							return <g>
+								<path d={`M ${gX} ${gY} L ${drawingArrow.current.x} ${drawingArrow.current.y}`} fill="none" stroke={currentColor || 'var(--text-normal)'} strokeWidth="1" markerEnd="url(#curlyhead)" />
+								<path d={`M ${drawingArrow.start.x} ${drawingArrow.start.y} Q ${c.x} ${c.y} ${drawingArrow.current.x} ${drawingArrow.current.y}`} fill="none" stroke={currentColor || 'var(--text-normal)'} strokeWidth="1.5" strokeDasharray="4" />
+							</g>;
 						})()}
 
 						{/* Bonds */}
@@ -692,14 +706,15 @@ export const DisplayedView: React.FC<{initialData?: string, onChange?: (data: st
 
 							if (ann.type === 'reaction_arrow' && ann.points && ann.points.length >= 2) {
 								const pts = ann.points;
+								const dx = pts[1]!.x - pts[0]!.x; const dy = pts[1]!.y - pts[0]!.y;
+								const len = Math.sqrt(dx * dx + dy * dy) || 1;
+								const shorten = 8;
+								const x2_short = pts[1]!.x - (dx / len) * shorten; const y2_short = pts[1]!.y - (dy / len) * shorten;
+								const ghostXLimit = pts[1]!.x - (dx / len) * 0.1; const ghostYLimit = pts[1]!.y - (dy / len) * 0.1;
 								return (
 									<g key={ann.id}>
-										<line x1={pts[0]!.x} y1={pts[0]!.y} x2={pts[1]!.x} y2={pts[1]!.y}
-											stroke={strokeColor} strokeWidth={(isSelected ? 3 : 2) * (ann.scale || 1)}
-											markerEnd={isSelected ? 'url(#harpoon-top-selected)' : 'url(#harpoon-top)'}
-											onPointerDown={(e) => handlePointerDownAnnotation(e, ann.id)}
-											style={{ cursor: activeTool === 'select' && !readOnly ? 'pointer' : 'default', pointerEvents: 'stroke' }}
-										/>
+										<line x1={ghostXLimit} y1={ghostYLimit} x2={pts[1]!.x} y2={pts[1]!.y} stroke={strokeColor} strokeWidth="0.1" markerEnd={isSelected ? 'url(#arrowhead-selected)' : 'url(#arrowhead)'} />
+										<line x1={pts[0]!.x} y1={pts[0]!.y} x2={x2_short} y2={y2_short} stroke={strokeColor} strokeWidth={(isSelected ? 3 : 2) * (ann.scale || 1)} onPointerDown={(e) => handlePointerDownAnnotation(e, ann.id)} style={{ cursor: activeTool === 'select' && !readOnly ? 'pointer' : 'default', pointerEvents: 'stroke' }} />
 										{isSelected && activeTool === 'select' && (
 											<>
 												<circle cx={pts[0]!.x} cy={pts[0]!.y} r="5" fill="var(--color-green, #20f080)" cursor="move"
@@ -715,24 +730,29 @@ export const DisplayedView: React.FC<{initialData?: string, onChange?: (data: st
 							} else if (ann.type === 'reaction_reversible' && ann.points && ann.points.length >= 2) {
 								const pts = ann.points;
 								const dx2 = pts[1]!.x - pts[0]!.x; const dy2 = pts[1]!.y - pts[0]!.y;
-								const len2 = Math.sqrt(dx2*dx2+dy2*dy2) || 1;
-								const nx2 = -dy2/len2*3.5; const ny2 = dx2/len2*3.5;
+								const len2 = Math.sqrt(dx2 * dx2 + dy2 * dy2) || 1;
+								const nx2 = -dy2 / len2 * 3.5; const ny2 = dx2 / len2 * 3.5;
+								const shorten = 8;
+								const x1_short = pts[0]!.x + (dx2 / len2) * shorten; const y1_short = pts[0]!.y + (dy2 / len2) * shorten;
+								const x2_short = pts[1]!.x - (dx2 / len2) * shorten; const y2_short = pts[1]!.y - (dy2 / len2) * shorten;
+
+								// Ghost lines for markers, shortened to be under the heads
+								const g1_start = pts[1]!.x - (dx2 / len2) * 0.1; const g1_y_start = pts[1]!.y - (dy2 / len2) * 0.1;
+								const g2_start = pts[0]!.x + (dx2 / len2) * 0.1; const g2_y_start = pts[0]!.y + (dy2 / len2) * 0.1;
+
 								return (
 									<g key={ann.id} onPointerDown={(e) => handlePointerDownAnnotation(e, ann.id)} style={{ cursor: activeTool === 'select' && !readOnly ? 'pointer' : 'default' }}>
-										<line x1={pts[0]!.x-nx2} y1={pts[0]!.y-ny2} x2={pts[1]!.x-nx2} y2={pts[1]!.y-ny2}
-											stroke={strokeColor} strokeWidth={(isSelected ? 2.5 : 1.5) * (ann.scale || 1)}
-											markerEnd={isSelected ? 'url(#harpoon-top-selected)' : 'url(#harpoon-top)'} />
-										<line x1={pts[1]!.x+nx2} y1={pts[1]!.y+ny2} x2={pts[0]!.x+nx2} y2={pts[0]!.y+ny2}
-											stroke={strokeColor} strokeWidth={(isSelected ? 2.5 : 1.5) * (ann.scale || 1)}
-											markerEnd={isSelected ? 'url(#harpoon-top-selected)' : 'url(#harpoon-top)'} />
+										<line x1={g1_start - nx2} y1={g1_y_start - ny2} x2={pts[1]!.x - nx2} y2={pts[1]!.y - ny2} stroke={strokeColor} strokeWidth="0.1" markerEnd={isSelected ? 'url(#harpoon-top-selected)' : 'url(#harpoon-top)'} />
+										<line x1={pts[0]!.x - nx2} y1={pts[0]!.y - ny2} x2={x2_short - nx2} y2={y2_short - ny2} stroke={strokeColor} strokeWidth={(isSelected ? 3 : 2) * (ann.scale || 1)} />
+
+										<line x1={g2_start + nx2} y1={g2_y_start + ny2} x2={pts[0]!.x + nx2} y2={pts[0]!.y + ny2} stroke={strokeColor} strokeWidth="0.1" markerEnd={isSelected ? 'url(#harpoon-top-selected)' : 'url(#harpoon-top)'} />
+										<line x1={pts[1]!.x + nx2} y1={pts[1]!.y + ny2} x2={x1_short + nx2} y2={y1_short + ny2} stroke={strokeColor} strokeWidth={(isSelected ? 3 : 2) * (ann.scale || 1)} />
+
 										{isSelected && activeTool === 'select' && (
 											<>
-												<circle cx={pts[0]!.x} cy={pts[0]!.y} r="5" fill="var(--color-green, #20f080)" cursor="move"
-													onPointerDown={(e) => { e.stopPropagation(); setSelectedIds([ann.id]); setDragNodeId(ann.id); setDragItemType('arrow_start'); }} />
-												<circle cx={pts[1]!.x} cy={pts[1]!.y} r="5" fill="var(--color-green, #20f080)" cursor="move"
-													onPointerDown={(e) => { e.stopPropagation(); setSelectedIds([ann.id]); setDragNodeId(ann.id); setDragItemType('arrow_end'); }} />
-												<rect x={pts[1]!.x + 10} y={pts[1]!.y + 10} width="6" height="6" fill="var(--color-blue, #2080f0)" cursor="se-resize"
-													onPointerDown={(e) => { e.stopPropagation(); setDragItemType('resize'); setDragNodeId(ann.id); }} />
+												<circle cx={pts[0]!.x} cy={pts[0]!.y} r="5" fill="var(--color-green, #20f080)" cursor="move" onPointerDown={(e) => { e.stopPropagation(); setSelectedIds([ann.id]); setDragNodeId(ann.id); setDragItemType('arrow_start'); }} />
+												<circle cx={pts[1]!.x} cy={pts[1]!.y} r="5" fill="var(--color-green, #20f080)" cursor="move" onPointerDown={(e) => { e.stopPropagation(); setSelectedIds([ann.id]); setDragNodeId(ann.id); setDragItemType('arrow_end'); }} />
+												<rect x={pts[1]!.x + 10} y={pts[1]!.y + 10} width="6" height="6" fill="var(--color-blue, #2080f0)" cursor="se-resize" onPointerDown={(e) => { e.stopPropagation(); setDragItemType('resize'); setDragNodeId(ann.id); }} />
 											</>
 										)}
 									</g>
@@ -772,29 +792,29 @@ export const DisplayedView: React.FC<{initialData?: string, onChange?: (data: st
 							} else if (ann.type === 'curly_arrow' && ann.points && ann.points.length >= 2) {
 								const pts = ann.points;
 								const c = ann.control || getInitialControlPoint(pts[0]!, pts[1]!);
+								const dx = pts[1]!.x - c.x; const dy = pts[1]!.y - c.y;
+								const len = Math.sqrt(dx * dx + dy * dy) || 1;
+								const shorten = 8;
+								const px = pts[1]!.x - (dx / len) * shorten; const py = pts[1]!.y - (dy / len) * shorten;
+								const gX = pts[1]!.x - (dx / len) * 0.1; const gY = pts[1]!.y - (dy / len) * 0.1;
 
 								return (
 									<g key={ann.id}>
-										<path 
-											d={`M ${pts[0]!.x} ${pts[0]!.y} Q ${c.x} ${c.y} ${pts[1]!.x} ${pts[1]!.y}`} 
-											fill="none" stroke={strokeColor} strokeWidth={(isSelected ? 3 : 2) * (ann.scale || 1)} 
-											markerEnd={isSelected ? "url(#curlyhead-selected)" : (ann.color ? "url(#curlyhead-color)" : "url(#curlyhead)")} 
-											onPointerDown={(e) => handlePointerDownAnnotation(e, ann.id)} 
-											style={{ cursor: activeTool === 'select' && !readOnly ? 'move' : 'default', pointerEvents: 'stroke' }}
-										/>
+										<path d={`M ${gX} ${gY} L ${pts[1]!.x} ${pts[1]!.y}`} fill="none" stroke={strokeColor} strokeWidth="0.1" markerEnd={isSelected ? "url(#curlyhead-selected)" : (ann.color ? "url(#curlyhead-color)" : "url(#curlyhead)")} />
+										<path d={`M ${pts[0]!.x} ${pts[0]!.y} Q ${c.x} ${c.y} ${px} ${py}`} fill="none" stroke={strokeColor} strokeWidth={(isSelected ? 3 : 2) * (ann.scale || 1)} onPointerDown={(e) => handlePointerDownAnnotation(e, ann.id)} style={{ cursor: activeTool === 'select' && !readOnly ? 'move' : 'default', pointerEvents: 'stroke' }} />
 										{isSelected && activeTool === 'select' && (
 											<>
 												<line x1={pts[0]!.x} y1={pts[0]!.y} x2={c.x} y2={c.y} stroke="var(--text-muted)" strokeDasharray="2 2" />
 												<line x1={pts[1]!.x} y1={pts[1]!.y} x2={c.x} y2={c.y} stroke="var(--text-muted)" strokeDasharray="2 2" />
-												<circle 
+												<circle
 													cx={c.x} cy={c.y} r="6" fill="var(--color-blue, #2080f0)" cursor="move"
 													onPointerDown={(e) => handlePointerDownControl(e, ann.id)}
 												/>
-												<circle 
+												<circle
 													cx={pts[0]!.x} cy={pts[0]!.y} r="5" fill="var(--color-green, #20f080)" cursor="move"
 													onPointerDown={(e) => { e.stopPropagation(); setSelectedIds([ann.id]); setDragNodeId(ann.id); setDragItemType('arrow_start'); }}
 												/>
-												<circle 
+												<circle
 													cx={pts[1]!.x} cy={pts[1]!.y} r="5" fill="var(--color-green, #20f080)" cursor="move"
 													onPointerDown={(e) => { e.stopPropagation(); setSelectedIds([ann.id]); setDragNodeId(ann.id); setDragItemType('arrow_end'); }}
 												/>

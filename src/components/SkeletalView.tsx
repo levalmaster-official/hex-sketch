@@ -62,6 +62,44 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 	const [annotations, setAnnotations] = useState<Annotation[]>([]);
 	const [history, setHistory] = useState<HistoryState[]>([]);
 	
+	const renderChemText = (text: string, color: string, fontSize: string, align: 'start' | 'middle' | 'end' = 'middle', dx = 0) => {
+		const segments: { text: string; type: 'normal' | 'sub' | 'super' }[] = [];
+		let current = "";
+		for (let i = 0; i < text.length; i++) {
+			if (text[i] === '_' || text[i] === '^') {
+				if (current) segments.push({ text: current, type: 'normal' });
+				current = "";
+				const isSub = text[i] === '_';
+				i++;
+				if (text[i] === '{') {
+					let j = i + 1;
+					while (j < text.length && text[j] !== '}') {
+						current += text[j];
+						j++;
+					}
+					segments.push({ text: current, type: isSub ? 'sub' : 'super' });
+					current = "";
+					i = j;
+				} else if (i < text.length) {
+					segments.push({ text: text[i]!, type: isSub ? 'sub' : 'super' });
+				}
+			} else {
+				current += text[i];
+			}
+		}
+		if (current) segments.push({ text: current, type: 'normal' });
+
+		return (
+			<text textAnchor={align} dominantBaseline="central" fill={color} fontWeight="bold" fontSize={fontSize} dx={dx} style={{ userSelect: 'none' }}>
+				{segments.map((s, idx) => (
+					<tspan key={idx} baselineShift={s.type === 'sub' ? '-33%' : s.type === 'super' ? '33%' : '0'} fontSize={s.type === 'normal' ? '1em' : '0.65em'}>
+						{s.text}
+					</tspan>
+				))}
+			</text>
+		);
+	};
+	
 	const [activeTool, setActiveTool] = useState<Tool>('bond_single');
 	const [newElementText, setNewElementText] = useState('O');
 	const [groupAlign, setGroupAlign] = useState<'start' | 'middle' | 'end'>('middle');
@@ -621,6 +659,21 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 							<circle cx="30" cy="51.9615" r="1.5" fill="var(--background-modifier-border)" />
 							<circle cx="60" cy="51.9615" r="1.5" fill="var(--background-modifier-border)" />
 						</pattern>
+						<marker id="harpoon-top" markerWidth="6" markerHeight="4.5" refX="5" refY="2.25" orient="auto">
+							<path d="M 0 0 L 6 2.25 L 0 2.25 Z" fill="context-stroke" />
+						</marker>
+						<marker id="harpoon-top-selected" markerWidth="6" markerHeight="4.5" refX="5" refY="2.25" orient="auto">
+							<path d="M 0 0 L 6 2.25 L 0 2.25 Z" fill="var(--color-red, #f02020)" />
+						</marker>
+						<marker id="harpoon-top-color" markerWidth="6" markerHeight="4.5" refX="5" refY="2.25" orient="auto" markerUnits="strokeWidth">
+							<path d="M 0 0 L 6 2.25 L 0 2.25 Z" fill="context-stroke" />
+						</marker>
+						<marker id="harpoon-bottom" markerWidth="6" markerHeight="4.5" refX="5" refY="2.25" orient="auto">
+							<path d="M 0 4.5 L 6 2.25 L 0 2.25 Z" fill="context-stroke" />
+						</marker>
+						<marker id="harpoon-bottom-selected" markerWidth="6" markerHeight="4.5" refX="5" refY="2.25" orient="auto">
+							<path d="M 0 4.5 L 6 2.25 L 0 2.25 Z" fill="var(--color-red, #f02020)" />
+						</marker>
 						<marker id="curlyhead" markerWidth="6" markerHeight="4.5" refX="5" refY="2.25" orient="auto">
 							<polygon points="0 0, 6 2.25, 0 4.5" fill="var(--text-normal)" />
 						</marker>
@@ -704,14 +757,11 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 										const w = Math.max(16, (el.text || '').length * 10 + 4);
 										const h = 20;
 										let rx = -w / 2;
-										if (el.align === 'start') rx = -10; // Point is left of text
-										else if (el.align === 'end') rx = -w + 10; // Point is right of text
-										return <rect x={rx} y={-h/2} width={w} height={h} fill="var(--background-primary)" rx="2" />;
+										if (el.align === 'start') rx = -10;
+										else if (el.align === 'end') rx = -w + 10;
+										return <rect x={rx - 1} y={-h/2} width={w + 2} height={h} fill="var(--background-primary)" />;
 									})()}
-									<text textAnchor={el.align === 'start' ? 'start' : el.align === 'end' ? 'end' : 'middle'} 
-										dx={el.align === 'start' ? -6 : el.align === 'end' ? 6 : 0}
-										dominantBaseline="central" fill={el.color || "var(--text-normal)"}
-										fontWeight="bold" fontSize="16px" style={{ userSelect: 'none' }}>{el.text}</text>
+									{renderChemText(el.text, el.color || "var(--text-normal)", "16px", el.align === 'start' ? 'start' : el.align === 'end' ? 'end' : 'middle', el.align === 'start' ? -6 : el.align === 'end' ? 6 : 0)}
 									{isSelected && activeTool === 'select' && (
 										<rect x="8" y="8" width="6" height="6" fill="var(--color-blue, #2080f0)" cursor="se-resize"
 											onPointerDown={(e) => { e.stopPropagation(); setDragItemType('resize'); setDragNodeId(el.id); }} />
@@ -762,7 +812,7 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 									<g key={ann.id}>
 										<line x1={pts[0]!.x} y1={pts[0]!.y} x2={pts[1]!.x} y2={pts[1]!.y}
 											stroke={strokeColor} strokeWidth={(isSelected ? 3 : 2) * (ann.scale || 1)}
-											markerEnd={isSelected ? 'url(#curlyhead-selected)' : (ann.color ? 'url(#curlyhead-color)' : 'url(#curlyhead)')}
+											markerEnd={isSelected ? 'url(#harpoon-top-selected)' : (ann.color ? 'url(#harpoon-top-color)' : 'url(#harpoon-top)')}
 											onPointerDown={(e) => handlePointerDownAnnotation(e, ann.id)}
 											style={{ cursor: activeTool === 'select' && !readOnly ? 'pointer' : 'default', pointerEvents: 'stroke' }}
 										/>
@@ -785,12 +835,12 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 								const nx2 = -dy2/len2*3.5; const ny2 = dx2/len2*3.5;
 								return (
 									<g key={ann.id} onPointerDown={(e) => handlePointerDownAnnotation(e, ann.id)} style={{ cursor: activeTool === 'select' && !readOnly ? 'pointer' : 'default' }}>
-										<line x1={pts[0]!.x+nx2} y1={pts[0]!.y+ny2} x2={pts[1]!.x+nx2} y2={pts[1]!.y+ny2}
+										<line x1={pts[0]!.x-nx2} y1={pts[0]!.y-ny2} x2={pts[1]!.x-nx2} y2={pts[1]!.y-ny2}
 											stroke={strokeColor} strokeWidth={(isSelected ? 2.5 : 1.5) * (ann.scale || 1)}
-											markerEnd={isSelected ? 'url(#curlyhead-selected)' : (ann.color ? 'url(#curlyhead-color)' : 'url(#curlyhead)')} />
-										<line x1={pts[1]!.x-nx2} y1={pts[1]!.y-ny2} x2={pts[0]!.x-nx2} y2={pts[0]!.y-ny2}
+											markerEnd={isSelected ? 'url(#harpoon-top-selected)' : 'url(#harpoon-top)'} />
+										<line x1={pts[1]!.x+nx2} y1={pts[1]!.y+ny2} x2={pts[0]!.x+nx2} y2={pts[0]!.y+ny2}
 											stroke={strokeColor} strokeWidth={(isSelected ? 2.5 : 1.5) * (ann.scale || 1)}
-											markerEnd={isSelected ? 'url(#curlyhead-selected)' : (ann.color ? 'url(#curlyhead-color)' : 'url(#curlyhead)')} />
+											markerEnd={isSelected ? 'url(#harpoon-top-selected)' : 'url(#harpoon-top)'} />
 										{isSelected && activeTool === 'select' && (
 											<>
 												<circle cx={pts[0]!.x} cy={pts[0]!.y} r="5" fill="var(--color-green, #20f080)" cursor="move"
@@ -827,7 +877,7 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 								return (
 									<g key={ann.id} transform={`translate(${ann.x}, ${ann.y}) scale(${ann.scale || 1})`} onPointerDown={(e) => handlePointerDownAnnotation(e, ann.id)} style={{ cursor: activeTool === 'select' && !readOnly ? 'move' : 'default' }}>
 										{isSelected && <rect x="-10" y="-10" width="20" height="20" fill="transparent" stroke="var(--color-red, #f02020)" strokeDasharray="2" />}
-										<text textAnchor="middle" dominantBaseline="central" fill={ann.color || "var(--text-normal)"} fontWeight="bold" fontSize="16px" style={{ userSelect: 'none' }}>{ann.value}</text>
+										{renderChemText(ann.value || '', ann.color || "var(--text-normal)", "16px", "middle")}
 									</g>
 								);
 							} else if (ann.type === 'curly_arrow' && ann.points && ann.points.length >= 2) {

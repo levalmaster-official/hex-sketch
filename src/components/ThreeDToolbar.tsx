@@ -136,7 +136,14 @@ export const ThreeDToolbar: React.FC<ThreeDToolbarProps> = (props) => {
 					{toolBtn('mirror_line', '⟊ Mirror', 'Draw a dashed mirror/symmetry line')}
 				</div>
 
-				{/* Group 5: Color */}
+				{/* Group 5: Reactions */}
+				<div style={{ display: 'flex', gap: '4px', background: 'var(--background-secondary)', padding: '6px', borderRadius: '6px', alignItems: 'center' }}>
+					{toolBtn('reaction_plus', '+ (React)', 'Reaction Plus')}
+					{toolBtn('reaction_arrow', '→', 'Reaction Arrow')}
+					{toolBtn('reaction_reversible', '⇌', 'Reversible Reaction Arrow')}
+				</div>
+
+				{/* Group 6: Color */}
 				<div style={{ display: 'flex', alignItems: 'center', gap: '4px', background: 'var(--background-secondary)', padding: '6px', borderRadius: '6px' }}>
 					<input
 						type="color"

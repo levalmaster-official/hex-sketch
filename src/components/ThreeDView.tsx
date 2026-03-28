@@ -17,8 +17,9 @@ const getInitialControlPoint = (start: {x: number, y: number}, end: {x: number, 
 const labelRadius = (el: ElementNode) => {
 	if (!el.text || el.text === '') return 0;
 	const s = el.scale || 1;
-	if (el.align === 'start' || el.align === 'end') return 8 * s; // Just enough for the anchor letter
-	return (el.text.length * 4.5 + 5) * s; // Proportional for centered labels
+	// Increase gap for wedges/dashes as requested
+	if (el.align === 'start' || el.align === 'end') return 10 * s; 
+	return (el.text.length * 4.5 + 6) * s; 
 };
 
 export const ThreeDView: React.FC<{
@@ -34,6 +35,44 @@ export const ThreeDView: React.FC<{
 	const [bonds, setBonds] = useState<Bond[]>([]);
 	const [annotations, setAnnotations] = useState<Annotation[]>([]);
 	const [history, setHistory] = useState<HistoryState[]>([]);
+
+	const renderChemText = (text: string, color: string, fontSize: string, align: 'start' | 'middle' | 'end' = 'middle', dx = 0) => {
+		const segments: { text: string; type: 'normal' | 'sub' | 'super' }[] = [];
+		let current = "";
+		for (let i = 0; i < text.length; i++) {
+			if (text[i] === '_' || text[i] === '^') {
+				if (current) segments.push({ text: current, type: 'normal' });
+				current = "";
+				const isSub = text[i] === '_';
+				i++;
+				if (i < text.length && text[i] === '{') {
+					let j = i + 1;
+					while (j < text.length && text[j] !== '}') {
+						current += text[j];
+						j++;
+					}
+					segments.push({ text: current, type: isSub ? 'sub' : 'super' });
+					current = "";
+					i = j;
+				} else if (i < text.length) {
+					segments.push({ text: text[i]!, type: isSub ? 'sub' : 'super' });
+				}
+			} else {
+				current += text[i];
+			}
+		}
+		if (current) segments.push({ text: current, type: 'normal' });
+
+		return (
+			<text textAnchor={align} dominantBaseline="central" fill={color} fontWeight="bold" fontSize={fontSize} dx={dx} style={{ userSelect: 'none' }}>
+				{segments.map((s, idx) => (
+					<tspan key={idx} baselineShift={s.type === 'sub' ? '-33%' : s.type === 'super' ? '33%' : '0'} fontSize={s.type === 'normal' ? '1em' : '0.65em'}>
+						{s.text}
+					</tspan>
+				))}
+			</text>
+		);
+	};
 
 	const [activeTool, setActiveTool] = useState<Tool>('element');
 	const [newElementText, setNewElementText] = useState('C');
@@ -60,6 +99,9 @@ export const ThreeDView: React.FC<{
 
 	// Mirror line drawing
 	const [drawingMirror, setDrawingMirror] = useState<{ start: {x:number,y:number}, current: {x:number,y:number} } | null>(null);
+
+	// Arrow drawing state (added for reaction arrows)
+	const [drawingArrow, setDrawingArrow] = useState<{ start: {x: number, y: number}, current: {x: number, y: number} } | null>(null);
 
 	const prevInitialData = useRef<string | undefined>(undefined);
 	const isLoaded = useRef(false);
@@ -128,7 +170,7 @@ export const ThreeDView: React.FC<{
 			const el = elements.find(e => e.id === id);
 			if (el) { pushHistory(); setElements(elements.map(e => e.id === id ? { ...e, text: newText } : e)); return; }
 			const ann = annotations.find(a => a.id === id);
-			if (ann && (ann.type === 'text' || ann.type === 'charge' || ann.type === 'delta_charge')) {
+			if (ann && (ann.type === 'text' || ann.type === 'charge' || ann.type === 'delta_charge' || ann.type.startsWith('reaction_'))) {
 				pushHistory(); setAnnotations(annotations.map(a => a.id === id ? { ...a, value: newText } : a));
 			}
 		}
@@ -204,6 +246,12 @@ export const ThreeDView: React.FC<{
 			setDrawingMirror({ start: coords, current: coords });
 			return;
 		}
+		
+		// Reaction arrows
+		if (activeTool === 'reaction_arrow' || activeTool === 'reaction_reversible') {
+			setDrawingArrow({ start: coords, current: coords });
+			return;
+		}
 
 		// Bond drawing: click on empty space while mid-draw creates a new element
 		if (isBondTool(activeTool) && bondFrom) {
@@ -259,6 +307,14 @@ export const ThreeDView: React.FC<{
 			}]);
 			return;
 		}
+		if (activeTool === 'reaction_plus') {
+			pushHistory();
+			setAnnotations(prev => [...prev, {
+				id: generateId(), type: 'reaction_plus', x: coords.x, y: coords.y,
+				value: '+', color: currentColor || undefined
+			}]);
+			return;
+		}
 	};
 
 	const handlePointerDownElement = (e: ReactMouseEvent, id: string) => {
@@ -302,7 +358,7 @@ export const ThreeDView: React.FC<{
 			if (!e.shiftKey && !selectedIds.includes(id)) {
 				setSelectedIds([id]);
 				const ann = annotations.find(a => a.id === id);
-				if (ann && (ann.type === 'text' || ann.type === 'charge' || ann.type === 'delta_charge')) {
+				if (ann && (ann.type === 'text' || ann.type === 'charge' || ann.type === 'delta_charge' || ann.type.startsWith('reaction_'))) {
 					setNewElementText(ann.value || '');
 				}
 			} else if (e.shiftKey && !selectedIds.includes(id)) {
@@ -323,6 +379,7 @@ export const ThreeDView: React.FC<{
 		if (selectionBox) { setSelectionBox({ ...selectionBox, current: coords }); }
 
 		if (drawingMirror) { setDrawingMirror({ ...drawingMirror, current: coords }); }
+		if (drawingArrow) { setDrawingArrow({ ...drawingArrow, current: coords }); }
 
 		if (dragNodeId && dragItemType === 'multi_drag' && dragInitialState) {
 			const dx = coords.x - dragStartPos.x;
@@ -342,6 +399,34 @@ export const ThreeDView: React.FC<{
 		}
 		if (dragNodeId && dragItemType === 'mirror_end') {
 			setAnnotations(annotations.map(a => a.id === dragNodeId && a.points ? { ...a, points: [a.points[0]!, { x: coords.x, y: coords.y }] } : a));
+		}
+		if (dragNodeId && dragItemType === 'arrow_start') {
+			setAnnotations(annotations.map(a => a.id === dragNodeId && a.points ? { ...a, points: [{ x: coords.x, y: coords.y }, a.points[1]!] } : a));
+		}
+		if (dragNodeId && dragItemType === 'arrow_end') {
+			setAnnotations(annotations.map(a => a.id === dragNodeId && a.points ? { ...a, points: [a.points[0]!, { x: coords.x, y: coords.y }] } : a));
+		}
+		if (dragNodeId && dragItemType === 'resize') {
+			const el = elements.find(e => e.id === dragNodeId);
+			if (el) {
+				const dx = coords.x - el.x; const dy = coords.y - el.y;
+				const dist = Math.sqrt(dx*dx + dy*dy);
+				setElements(elements.map(e => e.id === dragNodeId ? { ...e, scale: Math.max(0.2, dist / 15) } : e));
+			} else {
+				const ann = annotations.find(a => a.id === dragNodeId);
+				if (ann) {
+					if (ann.points) {
+						const dx = coords.x - ann.points[0]!.x; const dy = coords.y - ann.points[0]!.y;
+						const dist = Math.sqrt(dx*dx + dy*dy);
+						const origLen = Math.sqrt((ann.points[1]!.x - ann.points[0]!.x)**2 + (ann.points[1]!.y - ann.points[0]!.y)**2);
+						setAnnotations(annotations.map(a => a.id === dragNodeId ? { ...a, scale: Math.max(0.3, dist / (origLen || 20)) } : a));
+					} else {
+						const dx = coords.x - ann.x; const dy = coords.y - ann.y;
+						const dist = Math.sqrt(dx*dx + dy*dy);
+						setAnnotations(annotations.map(a => a.id === dragNodeId ? { ...a, scale: Math.max(0.2, dist / 15) } : a));
+					}
+				}
+			}
 		}
 	};
 
@@ -378,6 +463,18 @@ export const ThreeDView: React.FC<{
 				}]);
 			}
 			setDrawingMirror(null);
+			if (activeTool === 'mirror_line') setActiveTool('select');
+		}
+
+		if (drawingArrow) {
+			pushHistory();
+			setAnnotations(prev => [...prev, {
+				id: generateId(), type: activeTool as AnnotationType,
+				x: drawingArrow.start.x, y: drawingArrow.start.y,
+				points: [drawingArrow.start, drawingArrow.current],
+				color: currentColor || undefined
+			}]);
+			setDrawingArrow(null);
 			setActiveTool('select');
 		}
 	};
@@ -395,7 +492,10 @@ export const ThreeDView: React.FC<{
 		const ux = dx/len; const uy = dy/len;
 		const nx = -uy; const ny = ux; // perp
 
-		const r1 = labelRadius(fromEl); const r2 = labelRadius(toEl);
+		const isWedge = bond.type === 'wedge' || bond.type === 'dash';
+		const r1 = labelRadius(fromEl) + (isWedge ? 4 : 0); 
+		const r2 = labelRadius(toEl) + (isWedge ? 4 : 0);
+		
 		const startX = fromEl.x + ux * r1; const startY = fromEl.y + uy * r1;
 		const endX = toEl.x - ux * r2; const endY = toEl.y - uy * r2;
 		const segLen = Math.sqrt((endX-startX)**2 + (endY-startY)**2);
@@ -538,8 +638,17 @@ export const ThreeDView: React.FC<{
 					onWheel={handleWheel}
 				>
 					<defs>
-						<marker id="3d-curlyhead" markerWidth="6" markerHeight="4.5" refX="5" refY="2.25" orient="auto">
-							<polygon points="0 0, 6 2.25, 0 4.5" fill="var(--text-normal)" />
+						<marker id="harpoon-top" markerWidth="6" markerHeight="4.5" refX="5" refY="2.25" orient="auto">
+							<path d="M 0 0 L 6 2.25 L 0 2.25 Z" fill="context-stroke" />
+						</marker>
+						<marker id="harpoon-top-selected" markerWidth="6" markerHeight="4.5" refX="5" refY="2.25" orient="auto">
+							<path d="M 0 0 L 6 2.25 L 0 2.25 Z" fill="var(--color-red, #f02020)" />
+						</marker>
+						<marker id="harpoon-bottom" markerWidth="6" markerHeight="4.5" refX="5" refY="2.25" orient="auto">
+							<path d="M 0 4.5 L 6 2.25 L 0 2.25 Z" fill="context-stroke" />
+						</marker>
+						<marker id="harpoon-bottom-selected" markerWidth="6" markerHeight="4.5" refX="5" refY="2.25" orient="auto">
+							<path d="M 0 4.5 L 6 2.25 L 0 2.25 Z" fill="var(--color-red, #f02020)" />
 						</marker>
 					</defs>
 
@@ -575,6 +684,23 @@ export const ThreeDView: React.FC<{
 								strokeDasharray="8 5"
 							/>
 						)}
+						
+						{/* Reaction arrow preview */}
+						{drawingArrow && activeTool === 'reaction_arrow' && (
+							<line x1={drawingArrow.start.x} y1={drawingArrow.start.y} x2={drawingArrow.current.x} y2={drawingArrow.current.y}
+								stroke={currentColor || 'var(--text-normal)'} strokeWidth="2" strokeDasharray="4" markerEnd="url(#harpoon-top)" />
+						)}
+						{drawingArrow && activeTool === 'reaction_reversible' && (() => {
+							const dx = drawingArrow.current.x - drawingArrow.start.x; const dy = drawingArrow.current.y - drawingArrow.start.y;
+							const len = Math.sqrt(dx*dx+dy*dy) || 1;
+							const nx = -dy/len*3; const ny = dx/len*3;
+							return <g>
+								<line x1={drawingArrow.start.x+nx} y1={drawingArrow.start.y+ny} x2={drawingArrow.current.x+nx} y2={drawingArrow.current.y+ny}
+									stroke={currentColor || 'var(--text-normal)'} strokeWidth="1.5" strokeDasharray="4" markerEnd="url(#harpoon-top)" />
+								<line x1={drawingArrow.current.x-nx} y1={drawingArrow.current.y-ny} x2={drawingArrow.start.x-nx} y2={drawingArrow.start.y-ny}
+									stroke={currentColor || 'var(--text-normal)'} strokeWidth="1.5" strokeDasharray="4" markerEnd="url(#harpoon-top)" />
+							</g>;
+						})()}
 
 						{/* Bonds */}
 						{bonds.map(renderBond)}
@@ -589,20 +715,10 @@ export const ThreeDView: React.FC<{
 									onPointerDown={e => handlePointerDownElement(e, el.id)}
 									style={{ cursor: activeTool === 'select' && !readOnly ? 'move' : (isBondTool(activeTool) ? 'pointer' : 'default') }}>
 									{/* White background to erase bond behind label */}
-									<text
-										textAnchor={el.align === 'start' ? 'start' : el.align === 'end' ? 'end' : 'middle'}
-										dx={el.align === 'start' ? -6 : el.align === 'end' ? 6 : 0}
-										dominantBaseline="central"
-										fill="var(--background-primary)" stroke="var(--background-primary)" strokeWidth="6"
-										fontWeight="bold" fontSize="15px" style={{ userSelect: 'none' }}
-									>{el.text}</text>
-									<text
-										textAnchor={el.align === 'start' ? 'start' : el.align === 'end' ? 'end' : 'middle'}
-										dx={el.align === 'start' ? -6 : el.align === 'end' ? 6 : 0}
-										dominantBaseline="central"
-										fill={el.color || 'var(--text-normal)'}
-										fontWeight="bold" fontSize="15px" style={{ userSelect: 'none' }}
-									>{el.text}</text>
+									<g transform={`scale(${el.scale || 1})`}>
+										<rect x={el.align === 'start' ? -4 : (el.align === 'end' ? -36 : -20)} y="-10" width="40" height="20" fill="var(--background-primary)" opacity="0" />
+										{renderChemText(el.text, el.color || 'var(--text-normal)', '15px', el.align === 'start' ? 'start' : el.align === 'end' ? 'end' : 'middle', el.align === 'start' ? -6 : el.align === 'end' ? 6 : 0)}
+									</g>
 									{/* Bond-start highlight */}
 									{isBondStart && <circle r="16" fill="none" stroke="var(--color-blue, #2080f0)" strokeWidth="2" strokeDasharray="3 2" />}
 									{/* Selection ring */}
@@ -639,7 +755,71 @@ export const ThreeDView: React.FC<{
 												<circle cx={p1!.x} cy={p1!.y} r="5" fill="var(--color-blue, #2080f0)" cursor="move"
 													onPointerDown={e => { e.stopPropagation(); setSelectedIds([ann.id]); setDragNodeId(ann.id); setDragItemType('mirror_end'); }}
 												/>
+												<rect x={p1!.x + 10} y={p1!.y + 10} width="6" height="6" fill="var(--color-blue, #2080f0)" cursor="se-resize"
+													onPointerDown={(e) => { e.stopPropagation(); setDragItemType('resize'); setDragNodeId(ann.id); }} />
 											</>
+										)}
+									</g>
+								);
+							}
+							
+							if (ann.type === 'reaction_arrow' && ann.points && ann.points.length >= 2) {
+								const pts = ann.points;
+								return (
+									<g key={ann.id}>
+										<line x1={pts[0]!.x} y1={pts[0]!.y} x2={pts[1]!.x} y2={pts[1]!.y}
+											stroke={strokeColor} strokeWidth={(isSelected ? 3 : 2) * (ann.scale || 1)}
+											markerEnd={isSelected ? 'url(#harpoon-top-selected)' : 'url(#harpoon-top)'}
+											onPointerDown={(e) => handlePointerDownAnnotation(e, ann.id)}
+											style={{ cursor: activeTool === 'select' && !readOnly ? 'pointer' : 'default', pointerEvents: 'stroke' }}
+										/>
+										{isSelected && activeTool === 'select' && (
+											<>
+												<circle cx={pts[0]!.x} cy={pts[0]!.y} r="5" fill="var(--color-green, #20f080)" cursor="move"
+													onPointerDown={(e) => { e.stopPropagation(); setSelectedIds([ann.id]); setDragNodeId(ann.id); setDragItemType('arrow_start'); }} />
+												<circle cx={pts[1]!.x} cy={pts[1]!.y} r="5" fill="var(--color-green, #20f080)" cursor="move"
+													onPointerDown={(e) => { e.stopPropagation(); setSelectedIds([ann.id]); setDragNodeId(ann.id); setDragItemType('arrow_end'); }} />
+												<rect x={pts[1]!.x + 10} y={pts[1]!.y + 10} width="6" height="6" fill="var(--color-blue, #2080f0)" cursor="se-resize"
+													onPointerDown={(e) => { e.stopPropagation(); setDragItemType('resize'); setDragNodeId(ann.id); }} />
+											</>
+										)}
+									</g>
+								);
+							}
+
+							if (ann.type === 'reaction_reversible' && ann.points && ann.points.length >= 2) {
+								const pts = ann.points;
+								const dx2 = pts[1]!.x - pts[0]!.x; const dy2 = pts[1]!.y - pts[0]!.y;
+								const len2 = Math.sqrt(dx2*dx2+dy2*dy2) || 1;
+								const nx2 = -dy2/len2*3.5; const ny2 = dx2/len2*3.5;
+								return (
+									<g key={ann.id} onPointerDown={(e) => handlePointerDownAnnotation(e, ann.id)} style={{ cursor: activeTool === 'select' && !readOnly ? 'pointer' : 'default' }}>
+										<line x1={pts[0]!.x-nx2} y1={pts[0]!.y-ny2} x2={pts[1]!.x-nx2} y2={pts[1]!.y-ny2}
+											stroke={strokeColor} strokeWidth={(isSelected ? 2.5 : 1.5) * (ann.scale || 1)}
+											markerEnd={isSelected ? 'url(#harpoon-top-selected)' : 'url(#harpoon-top)'} />
+										<line x1={pts[1]!.x+nx2} y1={pts[1]!.y+ny2} x2={pts[0]!.x+nx2} y2={pts[0]!.y+ny2}
+											stroke={strokeColor} strokeWidth={(isSelected ? 2.5 : 1.5) * (ann.scale || 1)}
+											markerEnd={isSelected ? 'url(#harpoon-top-selected)' : 'url(#harpoon-top)'} />
+										{isSelected && activeTool === 'select' && (
+											<>
+												<circle cx={pts[0]!.x} cy={pts[0]!.y} r="5" fill="var(--color-green, #20f080)" cursor="move"
+													onPointerDown={(e) => { e.stopPropagation(); setSelectedIds([ann.id]); setDragNodeId(ann.id); setDragItemType('arrow_start'); }} />
+												<circle cx={pts[1]!.x} cy={pts[1]!.y} r="5" fill="var(--color-green, #20f080)" cursor="move"
+													onPointerDown={(e) => { e.stopPropagation(); setSelectedIds([ann.id]); setDragNodeId(ann.id); setDragItemType('arrow_end'); }} />
+												<rect x={pts[1]!.x + 10} y={pts[1]!.y + 10} width="6" height="6" fill="var(--color-blue, #2080f0)" cursor="se-resize"
+													onPointerDown={(e) => { e.stopPropagation(); setDragItemType('resize'); setDragNodeId(ann.id); }} />
+											</>
+										)}
+									</g>
+								);
+							}
+							
+							if (ann.type === 'reaction_plus') {
+								return (
+									<g key={ann.id} transform={`translate(${ann.x}, ${ann.y}) scale(${ann.scale || 1})`} onPointerDown={(e) => handlePointerDownAnnotation(e, ann.id)} style={{ cursor: activeTool === 'select' && !readOnly ? 'move' : 'default' }}>
+										{renderChemText(ann.value || '', ann.color || "var(--text-normal)", "24px", "middle")}
+										{isSelected && activeTool === 'select' && (
+											<rect x="14" y="14" width="6" height="6" fill="var(--color-blue, #2080f0)" cursor="se-resize" onPointerDown={(e) => { e.stopPropagation(); setDragItemType('resize'); setDragNodeId(ann.id); }} />
 										)}
 									</g>
 								);
@@ -653,11 +833,10 @@ export const ThreeDView: React.FC<{
 										onPointerDown={e => handlePointerDownAnnotation(e, ann.id)}
 										style={{ cursor: activeTool === 'select' && !readOnly ? 'move' : 'default' }}>
 										{isSelected && <rect x="-14" y="-14" width="28" height="28" fill="transparent" stroke={strokeColor} strokeDasharray="2" />}
-										<text textAnchor="middle" dominantBaseline="central"
-											fill={ann.color || 'var(--text-normal)'}
-											fontWeight="bold" fontSize={isBig ? '14px' : '15px'}
-											style={{ userSelect: 'none' }}
-										>{ann.value}</text>
+										{renderChemText(ann.value || '', ann.color || 'var(--text-normal)', isBig ? '14px' : '15px', 'middle')}
+										{isSelected && activeTool === 'select' && (
+											<rect x="10" y="10" width="6" height="6" fill="var(--color-blue, #2080f0)" cursor="se-resize" onPointerDown={(e) => { e.stopPropagation(); setDragItemType('resize'); setDragNodeId(ann.id); }} />
+										)}
 									</g>
 								);
 							}

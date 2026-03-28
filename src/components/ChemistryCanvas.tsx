@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { DrawingMode, ElementNode, Bond, Annotation } from './chemistryTypes';
 import { DisplayedView } from './DisplayedView';
 import { SkeletalView } from './SkeletalView';
+import { ThreeDView } from './ThreeDView';
 
 export const ChemistryCanvas: React.FC<{
 	initialData?: string, 
@@ -52,15 +53,7 @@ export const ChemistryCanvas: React.FC<{
 				<SkeletalView initialData={initialData} onChange={onChange} readOnly={readOnly} mode={mode} setMode={handleModeChange} isBlank={isBlank} />
 			)}
 			{mode === '3d' && (
-				<div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
-					<div style={{ padding: '8px', borderBottom: '1px solid var(--background-modifier-border)' }}>
-						<button onClick={() => handleModeChange('displayed')}>Switch to Displayed View</button>
-						<button onClick={() => handleModeChange('skeletal')} style={{ marginLeft: '8px' }}>Switch to Skeletal View</button>
-					</div>
-					<div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-						<h2>3D Rendering Component (Coming Soon)</h2>
-					</div>
-				</div>
+				<ThreeDView initialData={initialData} onChange={onChange} readOnly={readOnly} mode={mode} setMode={handleModeChange} isBlank={isBlank} />
 			)}
 		</div>
 	);

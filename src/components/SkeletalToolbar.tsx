@@ -112,20 +112,20 @@ export const SkeletalToolbar: React.FC<ChemistryToolbarProps> = (props) => {
 				<div style={{ display: 'flex', gap: '4px', background: 'var(--background-secondary)', padding: '6px', borderRadius: '6px', alignItems: 'center' }}>
 					<button
 						onClick={() => props.setActiveTool('heteroatom')}
-						className={props.activeTool === 'heteroatom' ? 'mod-cta' : ''}
-						title="Click a bond endpoint to place a heteroatom"
-					>Heteroatom</button>
+						className={(props.activeTool === 'heteroatom' || props.activeTool === 'group') ? 'mod-cta' : ''}
+						title="Place an element or multi-atom group"
+					>Group / Heteroatom</button>
 					<button onClick={() => props.setActiveTool('text')} className={props.activeTool === 'text' ? 'mod-cta' : ''}>Text</button>
 					
-					{(props.activeTool === 'heteroatom' || props.activeTool === 'text' || props.showEditInput) && (
-						<input type="text" value={props.newElementText} onChange={e => props.handleTextChange(e.target.value)} style={{ width: '60px' }} placeholder="O, N, OH..." />
+					{(props.activeTool === 'heteroatom' || props.activeTool === 'group' || props.activeTool === 'text' || props.showEditInput) && (
+						<input type="text" value={props.newElementText} onChange={e => props.handleTextChange(e.target.value)} style={{ width: '64px' }} placeholder="O, N, OH..." />
 					)}
 					
-					{(props.activeTool === 'heteroatom' || props.showEditInput) && (
+					{(props.activeTool === 'heteroatom' || props.activeTool === 'group' || props.showEditInput) && (
 						<select value={props.groupAlign} onChange={e => props.setGroupAlign(e.target.value as any)}>
 							<option value="middle">Centered</option>
-							<option value="start">Bond Left (OH)</option>
-							<option value="end">Bond Right (HO)</option>
+							<option value="start">Bind Left (OH)</option>
+							<option value="end">Bind Right (HO)</option>
 						</select>
 					)}
 

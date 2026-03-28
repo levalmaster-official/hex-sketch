@@ -13,8 +13,13 @@ const getInitialControlPoint = (start: {x: number, y: number}, end: {x: number, 
 	return { x: start.x + dx/2 + nx * offset, y: start.y + dy/2 + ny * offset };
 };
 
-// Returns bounding radius of an element label for bond trimming
-const labelRadius = (el: ElementNode) => (el.text && el.text !== '') ? 13 * (el.scale || 1) : 0;
+// Returns bounding radius for bond trimming. Smaller for aligned groups to allow bond to reach the 'anchor' letter.
+const labelRadius = (el: ElementNode) => {
+	if (!el.text || el.text === '') return 0;
+	const s = el.scale || 1;
+	if (el.align === 'start' || el.align === 'end') return 8 * s; // Just enough for the anchor letter
+	return (el.text.length * 4.5 + 5) * s; // Proportional for centered labels
+};
 
 export const ThreeDView: React.FC<{
 	initialData?: string;
@@ -585,13 +590,15 @@ export const ThreeDView: React.FC<{
 									style={{ cursor: activeTool === 'select' && !readOnly ? 'move' : (isBondTool(activeTool) ? 'pointer' : 'default') }}>
 									{/* White background to erase bond behind label */}
 									<text
-										textAnchor={el.align || 'middle'}
+										textAnchor={el.align === 'start' ? 'start' : el.align === 'end' ? 'end' : 'middle'}
+										dx={el.align === 'start' ? -6 : el.align === 'end' ? 6 : 0}
 										dominantBaseline="central"
 										fill="var(--background-primary)" stroke="var(--background-primary)" strokeWidth="6"
 										fontWeight="bold" fontSize="15px" style={{ userSelect: 'none' }}
 									>{el.text}</text>
 									<text
-										textAnchor={el.align || 'middle'}
+										textAnchor={el.align === 'start' ? 'start' : el.align === 'end' ? 'end' : 'middle'}
+										dx={el.align === 'start' ? -6 : el.align === 'end' ? 6 : 0}
 										dominantBaseline="central"
 										fill={el.color || 'var(--text-normal)'}
 										fontWeight="bold" fontSize="15px" style={{ userSelect: 'none' }}

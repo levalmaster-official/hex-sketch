@@ -425,7 +425,11 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 				const dy = coords.y - dragStartPos.y;
 				setElements(dragInitialState.elements.map(el => selectedIds.includes(el.id) ? { ...el, x: el.x + dx, y: el.y + dy } : el));
 				setBonds(dragInitialState.bonds.map(b => selectedIds.includes(b.id) && b.x1 !== undefined ? { ...b, x1: b.x1! + dx, y1: b.y1! + dy, x2: b.x2! + dx, y2: b.y2! + dy } : b));
-				setAnnotations(dragInitialState.annotations.map(a => selectedIds.includes(a.id) && !a.points ? { ...a, x: a.x + dx, y: a.y + dy } : a));
+				setAnnotations(dragInitialState.annotations.map(a => {
+					if (!selectedIds.includes(a.id)) return a;
+					if (a.points) return { ...a, points: a.points.map(p => ({ x: p.x + dx, y: p.y + dy })), control: a.control ? { x: a.control.x + dx, y: a.control.y + dy } : undefined };
+					return { ...a, x: a.x + dx, y: a.y + dy };
+				}));
 			} else if (dragItemType === 'control') {
 				setAnnotations(annotations.map(a => a.id === dragNodeId ? { ...a, control: { x: coords.x, y: coords.y } } : a));
 			} else if (dragItemType === 'arrow_start') {
@@ -441,9 +445,18 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 				} else {
 					const ann = annotations.find(a => a.id === dragNodeId);
 					if (ann) {
-						const dx = coords.x - ann.x; const dy = coords.y - ann.y;
-						const dist = Math.sqrt(dx*dx + dy*dy);
-						setAnnotations(annotations.map(a => a.id === dragNodeId ? { ...a, scale: Math.max(0.5, dist / 11) } : a));
+						if (ann.points) {
+							// For arrows, scaling means increasing thickness/head size or overall multiplier?
+							// User says "increase size", let's use the scale property to multiplier arrowhead/thickness.
+							const dx = coords.x - ann.points[0]!.x; const dy = coords.y - ann.points[0]!.y;
+							const dist = Math.sqrt(dx*dx + dy*dy);
+							const origLen = Math.sqrt((ann.points[1]!.x - ann.points[0]!.x)**2 + (ann.points[1]!.y - ann.points[0]!.y)**2);
+							setAnnotations(annotations.map(a => a.id === dragNodeId ? { ...a, scale: Math.max(0.3, dist / (origLen || 20)) } : a));
+						} else {
+							const dx = coords.x - ann.x; const dy = coords.y - ann.y;
+							const dist = Math.sqrt(dx*dx + dy*dy);
+							setAnnotations(annotations.map(a => a.id === dragNodeId ? { ...a, scale: Math.max(0.5, dist / 11) } : a));
+						}
 					}
 				}
 			}
@@ -689,12 +702,14 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 									{/* Opaque background rect to fully erase bond behind label (fixes O letter hole) */}
 									{(() => {
 										const w = Math.max(16, (el.text || '').length * 10 + 4);
+										const h = 20;
 										let rx = -w / 2;
-										if (el.align === 'start') rx = -w + 4;
-										else if (el.align === 'end') rx = -4;
-										return <rect x={rx} y={-10} width={w} height={20} fill="var(--background-primary)" rx="2" />;
+										if (el.align === 'start') rx = -10; // Point is left of text
+										else if (el.align === 'end') rx = -w + 10; // Point is right of text
+										return <rect x={rx} y={-h/2} width={w} height={h} fill="var(--background-primary)" rx="2" />;
 									})()}
-									<text textAnchor={el.align || "middle"} dx={el.align === 'start' ? -6 : el.align === 'end' ? 6 : 0}
+									<text textAnchor={el.align === 'start' ? 'start' : el.align === 'end' ? 'end' : 'middle'} 
+										dx={el.align === 'start' ? -6 : el.align === 'end' ? 6 : 0}
 										dominantBaseline="central" fill={el.color || "var(--text-normal)"}
 										fontWeight="bold" fontSize="16px" style={{ userSelect: 'none' }}>{el.text}</text>
 									{isSelected && activeTool === 'select' && (
@@ -746,7 +761,7 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 								return (
 									<g key={ann.id}>
 										<line x1={pts[0]!.x} y1={pts[0]!.y} x2={pts[1]!.x} y2={pts[1]!.y}
-											stroke={strokeColor} strokeWidth={isSelected ? 3 : 2}
+											stroke={strokeColor} strokeWidth={(isSelected ? 3 : 2) * (ann.scale || 1)}
 											markerEnd={isSelected ? 'url(#curlyhead-selected)' : (ann.color ? 'url(#curlyhead-color)' : 'url(#curlyhead)')}
 											onPointerDown={(e) => handlePointerDownAnnotation(e, ann.id)}
 											style={{ cursor: activeTool === 'select' && !readOnly ? 'pointer' : 'default', pointerEvents: 'stroke' }}
@@ -757,6 +772,8 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 													onPointerDown={(e) => { e.stopPropagation(); setSelectedIds([ann.id]); setDragNodeId(ann.id); setDragItemType('arrow_start'); }} />
 												<circle cx={pts[1]!.x} cy={pts[1]!.y} r="5" fill="var(--color-green, #20f080)" cursor="move"
 													onPointerDown={(e) => { e.stopPropagation(); setSelectedIds([ann.id]); setDragNodeId(ann.id); setDragItemType('arrow_end'); }} />
+												<rect x={pts[1]!.x + 10} y={pts[1]!.y + 10} width="6" height="6" fill="var(--color-blue, #2080f0)" cursor="se-resize"
+													onPointerDown={(e) => { e.stopPropagation(); setDragItemType('resize'); setDragNodeId(ann.id); }} />
 											</>
 										)}
 									</g>
@@ -769,10 +786,10 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 								return (
 									<g key={ann.id} onPointerDown={(e) => handlePointerDownAnnotation(e, ann.id)} style={{ cursor: activeTool === 'select' && !readOnly ? 'pointer' : 'default' }}>
 										<line x1={pts[0]!.x+nx2} y1={pts[0]!.y+ny2} x2={pts[1]!.x+nx2} y2={pts[1]!.y+ny2}
-											stroke={strokeColor} strokeWidth={isSelected ? 2.5 : 1.5}
+											stroke={strokeColor} strokeWidth={(isSelected ? 2.5 : 1.5) * (ann.scale || 1)}
 											markerEnd={isSelected ? 'url(#curlyhead-selected)' : (ann.color ? 'url(#curlyhead-color)' : 'url(#curlyhead)')} />
 										<line x1={pts[1]!.x-nx2} y1={pts[1]!.y-ny2} x2={pts[0]!.x-nx2} y2={pts[0]!.y-ny2}
-											stroke={strokeColor} strokeWidth={isSelected ? 2.5 : 1.5}
+											stroke={strokeColor} strokeWidth={(isSelected ? 2.5 : 1.5) * (ann.scale || 1)}
 											markerEnd={isSelected ? 'url(#curlyhead-selected)' : (ann.color ? 'url(#curlyhead-color)' : 'url(#curlyhead)')} />
 										{isSelected && activeTool === 'select' && (
 											<>
@@ -780,6 +797,8 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 													onPointerDown={(e) => { e.stopPropagation(); setSelectedIds([ann.id]); setDragNodeId(ann.id); setDragItemType('arrow_start'); }} />
 												<circle cx={pts[1]!.x} cy={pts[1]!.y} r="5" fill="var(--color-green, #20f080)" cursor="move"
 													onPointerDown={(e) => { e.stopPropagation(); setSelectedIds([ann.id]); setDragNodeId(ann.id); setDragItemType('arrow_end'); }} />
+												<rect x={pts[1]!.x + 10} y={pts[1]!.y + 10} width="6" height="6" fill="var(--color-blue, #2080f0)" cursor="se-resize"
+													onPointerDown={(e) => { e.stopPropagation(); setDragItemType('resize'); setDragNodeId(ann.id); }} />
 											</>
 										)}
 									</g>
@@ -818,7 +837,7 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 									<g key={ann.id}>
 										<path
 											d={`M ${pts[0].x} ${pts[0].y} Q ${c.x} ${c.y} ${pts[1].x} ${pts[1].y}`}
-											fill="none" stroke={strokeColor} strokeWidth={isSelected ? "3" : "2"}
+											fill="none" stroke={strokeColor} strokeWidth={(isSelected ? 3 : 2) * (ann.scale || 1)}
 											markerEnd={isSelected ? "url(#curlyhead-selected)" : (ann.color ? "url(#curlyhead-color)" : "url(#curlyhead)")}
 											onPointerDown={(e) => handlePointerDownAnnotation(e, ann.id)}
 											style={{ cursor: activeTool === 'select' && !readOnly ? 'move' : 'default', pointerEvents: 'stroke' }}
@@ -832,6 +851,8 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 													onPointerDown={(e) => { e.stopPropagation(); setSelectedIds([ann.id]); setDragNodeId(ann.id); setDragItemType('arrow_start'); }} />
 												<circle cx={pts[1].x} cy={pts[1].y} r="5" fill="var(--color-green, #20f080)" cursor="move"
 													onPointerDown={(e) => { e.stopPropagation(); setSelectedIds([ann.id]); setDragNodeId(ann.id); setDragItemType('arrow_end'); }} />
+												<rect x={pts[1].x + 10} y={pts[1].y + 10} width="6" height="6" fill="var(--color-blue, #2080f0)" cursor="se-resize"
+													onPointerDown={(e) => { e.stopPropagation(); setDragItemType('resize'); setDragNodeId(ann.id); }} />
 											</>
 										)}
 									</g>

@@ -1,6 +1,6 @@
 export type ElementNode = { id: string; text: string; x: number; y: number; color?: string; scale?: number; align?: 'start' | 'middle' | 'end' };
 export type BondType = 'single' | 'double' | 'triple' | 'dotted';
-export type Bond = { id: string; from: string; to: string; type: BondType };
+export type Bond = { id: string; from: string; to: string; type: BondType; x1?: number; y1?: number; x2?: number; y2?: number; color?: string };
 export type AnnotationType = 'charge' | 'electron_pair' | 'delta_charge' | 'curly_arrow' | 'reaction_plus' | 'reaction_arrow' | 'reaction_reversible' | 'text' | 'benzene' | 'bracket_left' | 'bracket_right';
 export type Annotation = { 
 	id: string; 

@@ -1,90 +1,60 @@
-# Obsidian Sample Plugin
+# HexSketch - Obsidian Chemistry Plugin
 
-This is a sample plugin for Obsidian (https://obsidian.md).
+HexSketch is a powerful, interactive chemistry drawing tool built specifically for Obsidian. It allows you to create, edit, and embed high-quality chemical structures (displayed formulas, skeletal structures, and more) directly within your notes.
 
-This project uses TypeScript to provide type checking and documentation.
-The repo depends on the latest plugin API (obsidian.d.ts) in TypeScript Definition format, which contains TSDoc comments describing what it does.
+## Features
 
-This sample plugin demonstrates some of the basic functionality the plugin API can do.
-- Adds a ribbon icon, which shows a Notice when clicked.
-- Adds a command "Open modal (simple)" which opens a Modal.
-- Adds a plugin setting tab to the settings page.
-- Registers a global click event and output 'click' to the console.
-- Registers a global interval which logs 'setInterval' to the console.
+### 1. Multi-Mode Drawing Canvas
+Switch between different drawing philosophies depending on your needs:
+- **Displayed Mode**: Shows every atom and bond explicitly. Perfect for simple organic molecules and educational diagrams. Matches standard 90°/orthogonal grids.
+- **Skeletal Mode**: High-speed, professional skeletal drawing.
+    - **Isometric Snap Grid**: Automatically align bonds to 30°/60°/120° angles.
+    - **Continuous Chain Drawing**: Click repeatedly on the canvas to rapidly build alkanes and complex carbon skeletons (ChemDraw style).
+    - **Smart Heteroatoms**: Easily add O, N, Cl, or custom groups with intelligent bond clipping.
 
-## First time developing plugins?
+### 2. Advanced Chemical Tools
+- **Bonds**: Single, Double, Triple, and Dotted bonds.
+- **Mechanism Tools**: Dynamic Curly Arrows with adjustable start/end points and curvature.
+- **Annotations**: 
+    - Full support for formal charges (+, -) and partial charges (δ+, δ-).
+    - Electron lone pairs (vertical and horizontal).
+    - Delocalized Benzene rings.
+    - **Separate Polymer Brackets**: Modular `[` and `]` brackets that can be placed and resized independently to enclose any object.
+- **Text Tool**: Add arbitrary labels and notes using the same cohesive font as chemical elements.
 
-Quick starting guide for new plugin devs:
+### 3. Deep Obsidian Integration
+- **Live Embeds**: Drawings are saved as `.chem` files and can be embedded in any markdown note using a simple code block:
+  ```chem
+  [[MyDrawing.chem]]
+  ```
+- **Dynamic Resizing**: Resize your chemical drawings directly in your notes by specifying width and height:
+  ```chem
+  [[MyDrawing.chem|width=300&height=225]]
+  ```
+- **High-Quality Export**: Export your drawings as SVG or PNG directly from the command palette. Exports are sanitized for high contrast, ensuring bonds and arrows are perfectly visible on any background.
 
-- Check if [someone already developed a plugin for what you want](https://obsidian.md/plugins)! There might be an existing plugin similar enough that you can partner up with.
-- Make a copy of this repo as a template with the "Use this template" button (login to GitHub if you don't see it).
-- Clone your repo to a local development folder. For convenience, you can place this folder in your `.obsidian/plugins/your-plugin-name` folder.
-- Install NodeJS, then run `npm i` in the command line under your repo folder.
-- Run `npm run dev` to compile your plugin from `main.ts` to `main.js`.
-- Make changes to `main.ts` (or create new `.ts` files). Those changes should be automatically compiled into `main.js`.
-- Reload Obsidian to load the new version of your plugin.
-- Enable plugin in settings window.
-- For updates to the Obsidian API run `npm update` in the command line under your repo folder.
+## Documentation
 
-## Releasing new releases
+### Drawing a Continuous Chain (Skeletal Mode)
+1. Select the **Single Bond** tool.
+2. Click anywhere on the canvas to place the first vertex.
+3. Click another location on the grid to instantly create the next vertex and the connecting bond.
+4. Continue clicking to grow the chain. To branch, simply click an existing vertex once to "select" it as the new start point, then click away to create the branch.
 
-- Update your `manifest.json` with your new version number, such as `1.0.1`, and the minimum Obsidian version required for your latest release.
-- Update your `versions.json` file with `"new-plugin-version": "minimum-obsidian-version"` so older versions of Obsidian can download an older version of your plugin that's compatible.
-- Create new GitHub release using your new version number as the "Tag version". Use the exact version number, don't include a prefix `v`. See here for an example: https://github.com/obsidianmd/obsidian-sample-plugin/releases
-- Upload the files `manifest.json`, `main.js`, `styles.css` as binary attachments. Note: The manifest.json file must be in two places, first the root path of your repository and also in the release.
-- Publish the release.
+### Adding Heteroatoms and Groups
+- Select the **Heteroatom** tool and type your element (e.g., `OH`).
+- Clicking near an existing bond or vertex will snap the group into place.
+- Use the **Bind Left (OH)** or **Bind Right (HO)** options in the toolbar to ensure bonds attach to the correct atom in a group.
 
-> You can simplify the version bump process by running `npm version patch`, `npm version minor` or `npm version major` after updating `minAppVersion` manually in `manifest.json`.
-> The command will bump version in `manifest.json` and `package.json`, and add the entry for the new version to `versions.json`
+### Resizing Embeds
+To change the size of a drawing on a page, use the following syntax in your markdown file:
+- `![[my_drawing.chem|300]]` (Sets width to 300px, preserves aspect ratio)
+- `![[my_drawing.chem|300x200]]` (Sets width to 300px and height to 200px)
 
-## Adding your plugin to the community plugin list
+## Development
+This plugin is built with React and SVG.
+- `npm run dev`: Start development build
+- `npm run build`: Production build and minification
 
-- Check the [plugin guidelines](https://docs.obsidian.md/Plugins/Releasing/Plugin+guidelines).
-- Publish an initial version.
-- Make sure you have a `README.md` file in the root of your repo.
-- Make a pull request at https://github.com/obsidianmd/obsidian-releases to add your plugin.
-
-## How to use
-
-- Clone this repo.
-- Make sure your NodeJS is at least v16 (`node --version`).
-- `npm i` or `yarn` to install dependencies.
-- `npm run dev` to start compilation in watch mode.
-
-## Manually installing the plugin
-
-- Copy over `main.js`, `styles.css`, `manifest.json` to your vault `VaultFolder/.obsidian/plugins/your-plugin-id/`.
-
-## Improve code quality with eslint
-- [ESLint](https://eslint.org/) is a tool that analyzes your code to quickly find problems. You can run ESLint against your plugin to find common bugs and ways to improve your code. 
-- This project already has eslint preconfigured, you can invoke a check by running`npm run lint`
-- Together with a custom eslint [plugin](https://github.com/obsidianmd/eslint-plugin) for Obsidan specific code guidelines.
-- A GitHub action is preconfigured to automatically lint every commit on all branches.
-
-## Funding URL
-
-You can include funding URLs where people who use your plugin can financially support it.
-
-The simple way is to set the `fundingUrl` field to your link in your `manifest.json` file:
-
-```json
-{
-    "fundingUrl": "https://buymeacoffee.com"
-}
-```
-
-If you have multiple URLs, you can also do:
-
-```json
-{
-    "fundingUrl": {
-        "Buy Me a Coffee": "https://buymeacoffee.com",
-        "GitHub Sponsor": "https://github.com/sponsors",
-        "Patreon": "https://www.patreon.com/"
-    }
-}
-```
-
-## API Documentation
-
-See https://docs.obsidian.md
+## License
+MIT

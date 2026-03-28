@@ -19,7 +19,7 @@ const getInitialControlPoint = (start: {x: number, y: number}, end: {x: number, 
 	};
 };
 
-export const DisplayedView: React.FC<{initialData?: string, onChange?: (data: string) => void, readOnly?: boolean, mode: DrawingMode, setMode: (m: DrawingMode) => void}> = ({initialData, onChange, readOnly, mode, setMode}) => {
+export const DisplayedView: React.FC<{initialData?: string, onChange?: (data: string) => void, readOnly?: boolean, mode: DrawingMode, setMode: (m: DrawingMode) => void, isBlank?: boolean}> = ({initialData, onChange, readOnly, mode, setMode, isBlank}) => {
 	const [elements, setElements] = useState<ElementNode[]>([]);
 	const [bonds, setBonds] = useState<Bond[]>([]);
 	const [annotations, setAnnotations] = useState<Annotation[]>([]);
@@ -536,6 +536,7 @@ export const DisplayedView: React.FC<{initialData?: string, onChange?: (data: st
 					handleTextChange={handleTextChange} showEditInput={selectedIds.length === 1}
 					groupAlign={groupAlign} setGroupAlign={setGroupAlign}
 					currentColor={currentColor} setCurrentColor={handleColorChange}
+					isBlank={isBlank}
 				/>
 			)}
 
@@ -567,9 +568,7 @@ export const DisplayedView: React.FC<{initialData?: string, onChange?: (data: st
 						</marker>
 					</defs>
 					
-					{/* Render seamless grid */}
-					{/* Render seamless grid */}
-					{!readOnly && <rect x="-10000" y="-10000" width="20000" height="20000" fill="url(#grid)" onPointerDown={handlePointerDownCanvas} style={{ cursor: activeTool === 'pan' ? 'grab' : 'crosshair' }} />}
+					{!readOnly && <rect x="-10000" y="-10000" width="20000" height="20000" fill="url(#grid)" style={{ pointerEvents: 'all', cursor: activeTool === 'pan' ? 'grab' : 'crosshair' }} />}
 
 					<g transform={`translate(${readOnly ? 0 : pan.x}, ${readOnly ? 0 : pan.y}) scale(${readOnly ? 1 : scale})`}>
 						

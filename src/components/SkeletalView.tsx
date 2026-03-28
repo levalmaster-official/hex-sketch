@@ -54,7 +54,7 @@ const findNearestBondEndpoint = (bonds: Bond[], x: number, y: number, threshold 
 	return best;
 };
 
-export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: string) => void, readOnly?: boolean, mode: DrawingMode, setMode: (m: DrawingMode) => void}> = ({initialData, onChange, readOnly, mode, setMode}) => {
+export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: string) => void, readOnly?: boolean, mode: DrawingMode, setMode: (m: DrawingMode) => void, isBlank?: boolean}> = ({initialData, onChange, readOnly, mode, setMode, isBlank}) => {
 	// Elements = heteroatoms only in skeletal mode
 	const [elements, setElements] = useState<ElementNode[]>([]);
 	// Bonds store direct x1,y1,x2,y2 coordinates
@@ -583,6 +583,7 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 					handleTextChange={handleTextChange} showEditInput={selectedIds.length === 1}
 					groupAlign={groupAlign} setGroupAlign={setGroupAlign}
 					currentColor={currentColor} setCurrentColor={handleColorChange}
+					isBlank={isBlank}
 				/>
 			)}
 
@@ -600,13 +601,19 @@ export const SkeletalView: React.FC<{initialData?: string, onChange?: (data: str
 					onWheel={handleWheel}
 				>
 					<defs>
-						<pattern id="isoGrid" width="52" height="45" patternUnits="userSpaceOnUse" patternTransform={`translate(${pan.x}, ${pan.y}) scale(${scale})`}>
-							{/* Isometric dot grid */}
-							<circle cx="0" cy="0" r="1.5" fill="var(--background-modifier-border)" />
-							<circle cx="26" cy="22.5" r="1.5" fill="var(--background-modifier-border)" />
-							<circle cx="52" cy="45" r="1.5" fill="var(--background-modifier-border)" />
-							<circle cx="52" cy="0" r="1.5" fill="var(--background-modifier-border)" />
-							<circle cx="26" cy="22.5" r="1.5" fill="var(--background-modifier-border)" />
+						<pattern id="isoGrid" width="104" height="90.0666" patternUnits="userSpaceOnUse" patternTransform={`translate(${pan.x}, ${pan.y}) scale(${scale})`}>
+							{/* Triangular lattice: exactly the valid snap points */}
+							{/* Even rows (offset=0): x = 0, 52, 104 */}
+							<circle cx="0"   cy="0"       r="1.5" fill="var(--background-modifier-border)" />
+							<circle cx="52"  cy="0"       r="1.5" fill="var(--background-modifier-border)" />
+							<circle cx="104" cy="0"       r="1.5" fill="var(--background-modifier-border)" />
+							{/* Odd rows (offset=26): x = 26, 78 */}
+							<circle cx="26"  cy="45.0333" r="1.5" fill="var(--background-modifier-border)" />
+							<circle cx="78"  cy="45.0333" r="1.5" fill="var(--background-modifier-border)" />
+							{/* Tile bottom edge (= next even row) */}
+							<circle cx="0"   cy="90.0666" r="1.5" fill="var(--background-modifier-border)" />
+							<circle cx="52"  cy="90.0666" r="1.5" fill="var(--background-modifier-border)" />
+							<circle cx="104" cy="90.0666" r="1.5" fill="var(--background-modifier-border)" />
 						</pattern>
 						<marker id="curlyhead" markerWidth="6" markerHeight="4.5" refX="5" refY="2.25" orient="auto">
 							<polygon points="0 0, 6 2.25, 0 4.5" fill="var(--text-normal)" />

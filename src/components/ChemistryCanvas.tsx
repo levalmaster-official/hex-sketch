@@ -32,6 +32,9 @@ export const ChemistryCanvas: React.FC<{
 		}
 	};
 
+	const d = initialData ? JSON.parse(initialData) : { elements: [], bonds: [], annotations: [] };
+	const isBlank = (!d.elements || d.elements.length === 0) && (!d.bonds || d.bonds.length === 0) && (!d.annotations || d.annotations.length === 0);
+
 	const containerStyle = {
 		width: width || '100%',
 		height: height || '100%',
@@ -43,10 +46,10 @@ export const ChemistryCanvas: React.FC<{
 	return (
 		<div style={containerStyle}>
 			{mode === 'displayed' && (
-				<DisplayedView initialData={initialData} onChange={onChange} readOnly={readOnly} mode={mode} setMode={handleModeChange} />
+				<DisplayedView initialData={initialData} onChange={onChange} readOnly={readOnly} mode={mode} setMode={handleModeChange} isBlank={isBlank} />
 			)}
 			{mode === 'skeletal' && (
-				<SkeletalView initialData={initialData} onChange={onChange} readOnly={readOnly} mode={mode} setMode={handleModeChange} />
+				<SkeletalView initialData={initialData} onChange={onChange} readOnly={readOnly} mode={mode} setMode={handleModeChange} isBlank={isBlank} />
 			)}
 			{mode === '3d' && (
 				<div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>

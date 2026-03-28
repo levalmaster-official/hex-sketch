@@ -18,11 +18,12 @@ interface ChemistryToolbarProps {
 	setGroupAlign: (align: 'start' | 'middle' | 'end') => void;
 	currentColor: string;
 	setCurrentColor: (color: string) => void;
+	isBlank?: boolean;
 }
 
 const PRESET_COLORS = ['', '#f02020', '#2080f0', '#20f080', '#f0a020', '#a020f0'];
 
-export const ChemistryToolbar: React.FC<ChemistryToolbarProps> = (props) => {
+export const ChemistryToolbar: React.FC<ChemistryToolbarProps & { isBlank?: boolean }> = (props) => {
 	const [favColors, setFavColors] = useState<string[]>(PRESET_COLORS);
 
 	useEffect(() => {
@@ -47,11 +48,25 @@ export const ChemistryToolbar: React.FC<ChemistryToolbarProps> = (props) => {
 
 	return (
 		<div style={{ display: 'flex', flexDirection: 'column', borderBottom: '1px solid var(--background-modifier-border)', padding: '8px', gap: '8px' }}>
-			{/* Mode Switcher */}
 			<div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginBottom: '4px' }}>
-				<button onClick={() => props.setMode('displayed')} className={props.mode === 'displayed' ? 'mod-cta' : ''}>Displayed</button>
-				<button onClick={() => props.setMode('skeletal')} className={props.mode === 'skeletal' ? 'mod-cta' : ''}>Skeletal</button>
-				<button onClick={() => props.setMode('3d')} className={props.mode === '3d' ? 'mod-cta' : ''}>3D</button>
+				<button 
+					onClick={() => props.setMode('displayed')} 
+					className={props.mode === 'displayed' ? 'mod-cta' : ''}
+					disabled={!props.isBlank && props.mode !== 'displayed'}
+					style={{ opacity: (!props.isBlank && props.mode !== 'displayed') ? 0.5 : 1, cursor: (!props.isBlank && props.mode !== 'displayed') ? 'not-allowed' : 'pointer' }}
+				>Displayed</button>
+				<button 
+					onClick={() => props.setMode('skeletal')} 
+					className={props.mode === 'skeletal' ? 'mod-cta' : ''}
+					disabled={!props.isBlank && props.mode !== 'skeletal'}
+					style={{ opacity: (!props.isBlank && props.mode !== 'skeletal') ? 0.5 : 1, cursor: (!props.isBlank && props.mode !== 'skeletal') ? 'not-allowed' : 'pointer' }}
+				>Skeletal</button>
+				<button 
+					onClick={() => props.setMode('3d')} 
+					className={props.mode === '3d' ? 'mod-cta' : ''}
+					disabled={!props.isBlank && props.mode !== '3d'}
+					style={{ opacity: (!props.isBlank && props.mode !== '3d') ? 0.5 : 1, cursor: (!props.isBlank && props.mode !== '3d') ? 'not-allowed' : 'pointer' }}
+				>3D</button>
 			</div>
 
 			{/* Tool Groups */}
